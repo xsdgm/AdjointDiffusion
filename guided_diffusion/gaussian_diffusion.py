@@ -27,7 +27,7 @@ from scipy.ndimage import label, binary_dilation
 from skimage.measure import euler_number
 from skimage.measure import label as label_
 
- 
+
 from guided_diffusion.simulation import CIS_sim, waveguide_sim
 
 
@@ -40,25 +40,24 @@ plt.rcParams["font.sans-serif"] = ["DejaVu Sans"]
 plt.rcParams["figure.figsize"] = (3.5,3.5)
 
 
-
 params = {
-    'axes.labelsize':12, # label 폰트 크기
-    'axes.titlesize':12, # 타이틀 폰트 크기
-    'xtick.labelsize':10, # x 축 tick label 폰트 크기
-    'ytick.labelsize':10, # y 축 tick label 폰트 크기 
-    'xtick.direction': 'in', # 눈금 표시 방향 (in, out, inout)
-    'ytick.direction': 'in', # 눈금 표시 방향 (in, out, inout)
-    'lines.markersize': 3, # 마커 사이즈
-    'axes.titlepad': 6, # 타이틀과 그래프 사이의 간격
-    'axes.labelpad': 4, # 축 label과 그래프 사이의 간격
-    'font.size': 12, # font 크기
-    #'font.sans-serif': 'Arial', # font 설정
-    'figure.dpi': 300, # 해상도, vector그래픽의 경우 dpi에 상관없이 깔끔하게 출력됨
-    'figure.autolayout': True, # 레이아웃 자동 설정 (그래프의 모든 요소가 figure 내부에 들어가도록 설정)
-    'xtick.top': True, # 그래프 위쪽 x축 눈금 표시
-    'ytick.right': True, # 그래프 오른쪽 y축 눈금 표시
-    'xtick.major.size': 2, # x축 눈금의 길이
-    'ytick.major.size': 2, # y축 눈금의 길이
+    'axes.labelsize': 12,       # label font size
+    'axes.titlesize': 12,       # title font size
+    'xtick.labelsize': 10,      # x-axis tick label font size
+    'ytick.labelsize': 10,      # y-axis tick label font size 
+    'xtick.direction': 'in',    # tick mark direction (in, out, inout)
+    'ytick.direction': 'in',    # tick mark direction (in, out, inout)
+    'lines.markersize': 3,      # marker size
+    'axes.titlepad': 6,         # padding between title and plot
+    'axes.labelpad': 4,         # padding between axis label and plot
+    'font.size': 12,            # font size
+    #'font.sans-serif': 'Arial',  # font setting
+    'figure.dpi': 300,          # resolution; for vector graphics, dpi doesn't affect output quality
+    'figure.autolayout': True,  # automatic layout (ensures all elements are inside the figure)
+    'xtick.top': True,          # display x-axis ticks on top
+    'ytick.right': True,        # display y-axis ticks on right side
+    'xtick.major.size': 2,      # length of x-axis major ticks
+    'ytick.major.size': 2,      # length of y-axis major ticks
 }
 
 plt.rcParams.update(params)
@@ -71,9 +70,7 @@ def load_lists(filename='lists.pkl'):
     return [], [], []
 
 
-
 # Function to delete every island with size 1
-
 def delete_islands_with_size_1(array):
     # Label the connected components
     labeled_array, num_features = label(array)
@@ -106,7 +103,6 @@ def find_minimum_feature_size(array):
     return min_feature[1], min_feature[0], labeled_array
 
 
-
 def highlight_minimum_island(array, min_label, labeled_array):
     # Find the coordinates of the minimum island
     coords = np.argwhere(labeled_array == min_label)
@@ -125,7 +121,7 @@ def highlight_minimum_island(array, min_label, labeled_array):
     
     # Create a plot
     fig, ax = plt.subplots()
-    ax.imshow(1-array, cmap='gray')   # black: 1, while: 0
+    ax.imshow(1-array, cmap='gray')   # black: 1, white: 0
     ax.imshow(boundary, cmap='Reds', alpha=0.5)  # Overlay the red boundary with higher alpha
     
     # Adjust boundary line thickness and make it more vivid
@@ -137,10 +133,10 @@ def highlight_minimum_island(array, min_label, labeled_array):
     return plt
 
 def extract_elements(lst):
-    # 결과를 저장할 리스트를 생성합니다.
+    # Create a list to store results.
     result = []
 
-    # 리스트의 길이만큼 반복하면서 4의 배수 인덱스의 요소를 추출합니다.
+    # Iterate over the list and extract every 5th element.
     for i in range(0, len(lst), 5):
         result.append(lst[i])
 
@@ -148,14 +144,12 @@ def extract_elements(lst):
 
 
 def simulation_name(sim_name):  # sim: function
-    
     if sim_name == "CIS_sim":
         return CIS_sim
     elif sim_name == "waveguide_sim":
         return waveguide_sim
     else:
         raise ValueError(f"Unsupported simulation name '{sim_name}'. Supported names are 'CIS' and 'waveguide'.")
-
 
 
 def get_named_beta_schedule(schedule_name, num_diffusion_timesteps):
@@ -209,10 +203,9 @@ class ModelMeanType(enum.Enum):
     """
     Which type of output the model predicts.
     """
-
     PREVIOUS_X = enum.auto()  # the model predicts x_{t-1}
-    START_X = enum.auto()  # the model predicts x_0
-    EPSILON = enum.auto()  # the model predicts epsilon
+    START_X = enum.auto()     # the model predicts x_0
+    EPSILON = enum.auto()     # the model predicts epsilon
 
 
 class ModelVarType(enum.Enum):
@@ -222,7 +215,6 @@ class ModelVarType(enum.Enum):
     The LEARNED_RANGE option has been added to allow the model to predict
     values between FIXED_SMALL and FIXED_LARGE, making its job easier.
     """
-
     LEARNED = enum.auto()
     FIXED_SMALL = enum.auto()
     FIXED_LARGE = enum.auto()
@@ -231,10 +223,8 @@ class ModelVarType(enum.Enum):
 
 class LossType(enum.Enum):
     MSE = enum.auto()  # use raw MSE loss (and KL when learning variances)
-    RESCALED_MSE = (
-        enum.auto()
-    )  # use raw MSE loss (with RESCALED_KL when learning variances)
-    KL = enum.auto()  # use the variational lower-bound
+    RESCALED_MSE = enum.auto()  # use raw MSE loss (with RESCALED_KL when learning variances)
+    KL = enum.auto()   # use the variational lower-bound
     RESCALED_KL = enum.auto()  # like KL, but rescale to estimate the full VLB
 
     def is_vb(self):
@@ -257,7 +247,6 @@ class GaussianDiffusion:
                               model so that they are always scaled like in the
                               original paper (0 to 1000).
     """
-
     def __init__(
         self,
         *,
@@ -585,7 +574,7 @@ class GaussianDiffusion:
         t_cur = t[0].item()
         
         if my_kwargs['sim_guided'] and ( t_cur % my_kwargs['inter_rate'] == 0 ) and ( t_cur > my_kwargs['stoptime'] * self.num_timesteps ):
-            assert x.shape[0] == 1 # only support batch size 1 for now
+            assert x.shape[0] == 1  # only support batch size 1 for now
             
             from time import time
             start = time()
@@ -596,16 +585,6 @@ class GaussianDiffusion:
                 # Goal: Compute the gradient of fom w.r.t. xt
                 # To this end, first we need to compute the Jacobian matrix of x0hat w.r.t. xt
                 x0hat_test = False
-                
-                # if x0hat_test:
-                #     eta = 0.0
-                # if my_kwargs['schedule_type'] == 'std':
-                #     eta = eta * th.exp(0.5 * out["log_variance"])
-                # elif my_kwargs['schedule_type'] == 'var':
-                #     eta = eta * out["variance"]
-                # else:
-                #     pass
-                    
                 
                 def x0hat_from_xt(
                     xt,
@@ -630,15 +609,11 @@ class GaussianDiffusion:
                         print("x0hat test mode...")
                         x0hat_jacobian_xt = th.zeros(4096, 4096).to(x.device)
                     else:
-                        # print('Start computing the Jacobian matrix of x0hat w.r.t. xt')
                         x0hat_jacobian_xt = th.autograd.functional.jacobian(x0hat_from_xt, xt)
-                        # print('Finished computing the Jacobian matrix of x0hat w.r.t. xt')
                         
-                # print('x0hat_jacobian_xt.shape:', x0hat_jacobian_xt.shape)
                 x0hat_jacobian_xt = x0hat_jacobian_xt.reshape(int(x0hat_jacobian_xt.numel() ** 0.5), -1)
                     
                 # Computing the gradient of fom w.r.t. x0hat
-                
                 if x0hat_test:
                     fom = 0.0
                     adjoint_gradient = th.zeros_like(out['pred_xstart']).reshape(-1).float().to(x.device)
@@ -652,7 +627,6 @@ class GaussianDiffusion:
                         my_kwargs['interval'],
                     )
                     adjoint_gradient = th.from_numpy(adjoint_gradient.reshape(-1)).float().to(x.device)
-                    # measure the impact of adjoint_gradient
                     adjgrad_norm = adjoint_gradient.view(x.shape[0], -1).norm(dim=-1).mean().item()
                 
                 # Now we can compute the gradient of fom w.r.t. xt
@@ -668,29 +642,19 @@ class GaussianDiffusion:
 
                 end = time()
                 print('time elapsed:', end-start)
-                       ### CHANGED
                 print('eta:', eta)
                 print(f'fom at step {wandb.config.tsr-t_cur}: ', fom)
                 print('adjgrad_norm:', adjgrad_norm)
                 print('xtgrad_norm:', xtgrad_norm)
-                #print(f'red at step {wandb.config.tsr-t_cur}: ', red)
-                #print(f'green at step {wandb.config.tsr-t_cur}: ', green)
-                #print(f'blue at step {wandb.config.tsr-t_cur}: ', blue)
                 
                 x_ = 1-x
-                # save the intermediate results
                 wandb.log({
                     'fom': fom,
                     'eta': eta,
                     'adjgrad_norm': adjgrad_norm,
                     'xtgrad_norm': xtgrad_norm,
                     "generated": [wandb.Image(th.squeeze(x_.detach().cpu()).numpy(), caption='step_'+str(wandb.config.tsr-t_cur)+'_fom_'+str(fom)[:5])]
-                    #'red': red,
-                    #'green': green,
-                    #'blue': blue
                 }, step=wandb.config.tsr-t_cur)
-
-                
 
             elif my_kwargs['guidance_type'] == 'dds':
                 fom, adjoint_gradient = my_kwargs['simulation_'](
@@ -703,7 +667,6 @@ class GaussianDiffusion:
                 )
                 adjoint_gradient = th.from_numpy(adjoint_gradient.reshape(x.shape)).float().to(x.device)
                 adjgrad_norm = adjoint_gradient.view(x.shape[0], -1).norm(dim=-1).mean().item()
-                # x0_grad = adjoint_gradient.reshape(x.shape)
                 
                 if my_kwargs['use_normed_grad']:
                     max_grad_values = adjoint_gradient.abs().amax(dim=(1,2,3)).view(-1, 1, 1, 1)
@@ -725,7 +688,6 @@ class GaussianDiffusion:
                 print('adjgrad_norm:', adjgrad_norm)
                 
                 x_ = 1-x
-                # save the intermediate results
                 wandb.log({
                     'fom': fom,
                     'eta': eta,
@@ -733,8 +695,6 @@ class GaussianDiffusion:
                     "generated": [wandb.Image(th.squeeze(x_.detach().cpu()).numpy(), caption='step_'+str(wandb.config.tsr-t_cur)+'_fom_'+str(fom)[:5])]
                 }, step=wandb.config.tsr-t_cur)
                 
-            
-            # save the plot of pixel distribution
             if t_cur % my_kwargs['interval'] == 0:
                 hist_dir = os.path.join('figures', my_kwargs['exp_name'])
                 os.makedirs(hist_dir, exist_ok=True)
@@ -750,10 +710,7 @@ class GaussianDiffusion:
                 wandb.log({"pixel_dist_plot_x0": wandb.Image(plt, caption='step_'+str(wandb.config.tsr-t_cur)+'_fom_'+str(fom)[:5])}, step=wandb.config.tsr-t_cur)
                 plt.savefig(os.path.join(hist_dir, 'x0_pixel_dist_step_'+str(wandb.config.tsr-t_cur)+'.png'))
                 plt.close()
-                
-                
                     
-        
         sample = out["mean"] + nonzero_mask * th.exp(0.5 * out["log_variance"]) * noise + eta * xt_grad
         
         if t_cur == 0:
@@ -770,12 +727,11 @@ class GaussianDiffusion:
                 my_kwargs['interval'],
                 flag_last=True
             )
-            x_image = sample_bin_.reshape(64, 64,1)
+            x_image = sample_bin_.reshape(64, 64, 1)
             print('fom (final, after binarization): ', fom)
 
-            
             fig = plt.figure(figsize=(20,20))
-            plt.imshow(np.squeeze(np.abs(sensitivity.reshape(64, 64))))#(np.rot90(np.squeeze(np.abs(sensitivity[0].reshape(Nx, Ny)))));
+            plt.imshow(np.squeeze(np.abs(sensitivity.reshape(64, 64))))
             plt.xlabel("x")
             plt.ylabel("y")
             plt.savefig("sensitivity.png")
@@ -804,14 +760,10 @@ class GaussianDiffusion:
                 flag_last=True
             )
             
-            #plt1 = highlight_minimum_island(island_deleted, min_feature_label, labeled_array, title='Minimum Feature 1s')
-            
             wandb.log({
                 'fom (binarized, island deleted1)': fom_island,
                 "generated, island deleted1": [wandb.Image(1-island_deleted)],
-               # "highlighted, island deleted1": [wandb.Image(plt1, caption=f"generated_final_island_deleted_highlghted")]
             })
-            
             
             array_converted_processed = delete_islands_with_size_1(1-island_deleted.copy())
             array_original = 1 - array_converted_processed
@@ -821,11 +773,9 @@ class GaussianDiffusion:
             _, num_islands1 = label_(island_deleted, connectivity=1, return_num=True)
             num_holes1 = num_islands1 - euler_number_original
 
-
             euler_number_converted = euler_number(array_converted_processed, connectivity=1)
             _, num_islands2 = label_(array_converted_processed, connectivity=1, return_num=True)
             num_holes2 = num_islands2 - euler_number_converted
-
 
             fom_island2, _ = my_kwargs['simulation_'](
                 array_original.flatten(),
@@ -839,19 +789,16 @@ class GaussianDiffusion:
 
             wandb.log({
                "highlighted, island deleted2": [wandb.Image(plt2)],
-
             })
             
             _, min_feature_label3, labeled_array3 = find_minimum_feature_size(array_original)
             plt3 = highlight_minimum_island(array_original, min_feature_label3, labeled_array3)
             
-
             wandb.log({
                 'fom (final, binarized and island-deleted)': fom_island2,
-                "generated_final": [wandb.Image(1-array_original)],
+                "generated_fianl": [wandb.Image(1-array_original)],
                 "highlighted, final": [wandb.Image(plt3)]
             })
-
 
             print("array 0,0: ", array_original[0,0], ' value')
 
@@ -859,7 +806,7 @@ class GaussianDiffusion:
                 'mfs (original)': min_feature_size,
                 'mfs (converted)': min_feature_size2,
                 'number of islands (original)': num_islands1,
-                'number of islands (converted)':num_islands2,
+                'number of islands (converted)': num_islands2,
                 'number of holes (original)' : num_holes1,
                 'number of holes (converted)': num_holes2,
                 'euler_number with 1 connectivity (original)': euler_number_original,
@@ -883,7 +830,7 @@ class GaussianDiffusion:
                         xname = "Step"
                     )})
 
-        return {"sample": sample, "pred_xstart": out["pred_xstart"]} #"xt": xt, 
+        return {"sample": sample, "pred_xstart": out["pred_xstart"]}
 
     def p_sample_loop(
         self,
@@ -964,9 +911,7 @@ class GaussianDiffusion:
         indices = list(range(self.num_timesteps))[::-1]
 
         if progress:
-            # Lazy import so that we don't depend on tqdm.
             from tqdm.auto import tqdm
-
             indices = tqdm(indices)
 
         if my_kwargs['sim_guided']:
@@ -977,7 +922,6 @@ class GaussianDiffusion:
             wandb.init(project=simulationlabel+"_diffusion")
             wandb.run.name = "class"+str(my_kwargs['manual_class_id'])+"_eta"+str(my_kwargs['eta'])+"_tsr"+str(my_kwargs['tsr'])
 
-            
         cfg = {
             'eta': my_kwargs['eta'],
             'tsr': len(indices),
@@ -1028,8 +972,6 @@ class GaussianDiffusion:
         if cond_fn is not None:
             out = self.condition_score(cond_fn, out, x, t, model_kwargs=model_kwargs)
 
-        # Usually our model outputs epsilon, but we re-derive it
-        # in case we used x_start or x_prev prediction.
         eps = self._predict_eps_from_xstart(x, t, out["pred_xstart"])
 
         alpha_bar = _extract_into_tensor(self.alphas_cumprod, t, x.shape)
@@ -1039,7 +981,6 @@ class GaussianDiffusion:
             * th.sqrt((1 - alpha_bar_prev) / (1 - alpha_bar))
             * th.sqrt(1 - alpha_bar / alpha_bar_prev)
         )
-        # Equation 12.
         noise = th.randn_like(x)
         mean_pred = (
             out["pred_xstart"] * th.sqrt(alpha_bar_prev)
@@ -1047,7 +988,7 @@ class GaussianDiffusion:
         )
         nonzero_mask = (
             (t != 0).float().view(-1, *([1] * (len(x.shape) - 1)))
-        )  # no noise when t == 0
+        )
         sample = mean_pred + nonzero_mask * sigma * noise
         return {"sample": sample, "pred_xstart": out["pred_xstart"]}
 
@@ -1073,20 +1014,15 @@ class GaussianDiffusion:
             denoised_fn=denoised_fn,
             model_kwargs=model_kwargs,
         )
-        # Usually our model outputs epsilon, but we re-derive it
-        # in case we used x_start or x_prev prediction.
         eps = (
             _extract_into_tensor(self.sqrt_recip_alphas_cumprod, t, x.shape) * x
             - out["pred_xstart"]
         ) / _extract_into_tensor(self.sqrt_recipm1_alphas_cumprod, t, x.shape)
         alpha_bar_next = _extract_into_tensor(self.alphas_cumprod_next, t, x.shape)
-
-        # Equation 12. reversed
         mean_pred = (
             out["pred_xstart"] * th.sqrt(alpha_bar_next)
             + th.sqrt(1 - alpha_bar_next) * eps
         )
-
         return {"sample": mean_pred, "pred_xstart": out["pred_xstart"]}
 
     def ddim_sample_loop(
@@ -1152,9 +1088,7 @@ class GaussianDiffusion:
         indices = list(range(self.num_timesteps))[::-1]
 
         if progress:
-            # Lazy import so that we don't depend on tqdm.
             from tqdm.auto import tqdm
-
             indices = tqdm(indices)
 
         for i in indices:
@@ -1203,8 +1137,6 @@ class GaussianDiffusion:
         assert decoder_nll.shape == x_start.shape
         decoder_nll = mean_flat(decoder_nll) / np.log(2.0)
 
-        # At the first timestep return the decoder NLL,
-        # otherwise return KL(q(x_{t-1}|x_t,x_0) || p(x_{t-1}|x_t))
         output = th.where((t == 0), decoder_nll, kl)
         return {"output": output, "pred_xstart": out["pred_xstart"]}
 
@@ -1250,8 +1182,6 @@ class GaussianDiffusion:
                 B, C = x_t.shape[:2]
                 assert model_output.shape == (B, C * 2, *x_t.shape[2:])
                 model_output, model_var_values = th.split(model_output, C, dim=1)
-                # Learn the variance using the variational bound, but don't let
-                # it affect our mean prediction.
                 frozen_out = th.cat([model_output.detach(), model_var_values], dim=1)
                 terms["vb"] = self._vb_terms_bpd(
                     model=lambda *args, r=frozen_out: r,
@@ -1261,8 +1191,6 @@ class GaussianDiffusion:
                     clip_denoised=False,
                 )["output"]
                 if self.loss_type == LossType.RESCALED_MSE:
-                    # Divide by 1000 for equivalence with initial implementation.
-                    # Without a factor of 1/1000, the VB term hurts the MSE term.
                     terms["vb"] *= self.num_timesteps / 1000.0
 
             target = {
@@ -1329,7 +1257,6 @@ class GaussianDiffusion:
             t_batch = th.tensor([t] * batch_size, device=device)
             noise = th.randn_like(x_start)
             x_t = self.q_sample(x_start=x_start, t=t_batch, noise=noise)
-            # Calculate VLB term at the current timestep
             with th.no_grad():
                 out = self._vb_terms_bpd(
                     model,
@@ -1373,5 +1300,3 @@ def _extract_into_tensor(arr, timesteps, broadcast_shape):
     while len(res.shape) < len(broadcast_shape):
         res = res[..., None]
     return res.expand(broadcast_shape)
-
-

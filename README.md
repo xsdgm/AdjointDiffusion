@@ -17,15 +17,24 @@ structural optimization using diffusion models](https://arxiv.org)
 ### 0. Environment Setup
 
 
+## wandb
+To facilitate the tracking of experiments, we use[wandb](https://wandb.ai/home).
+To know more about wandb, please refer to the [official documentation](https://docs.wandb.ai/quickstart).
+
+
 ### 1. Installation
 
 
+### 2. Dataset Generation
+run `python dataset_generation.py` to generate the dataset.
 
-### 2. Training
+
+
+### 3. Training
 
 
 
-### 3. Sampling
+### 4. Sampling
 
 
 
