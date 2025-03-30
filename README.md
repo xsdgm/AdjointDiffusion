@@ -26,12 +26,13 @@ structural optimization using diffusion models](https://arxiv.org)
 
 ## TL;DR
 
-| Integrating adjoint sensitivity analysis with diffusion models can generate high-performance and interesting structures! |
-| - **Adjoint Sensitivity Integration**: Seamlessly incorporates adjoint gradients into the diffusion process. |
-| - **Fabrication Constraints**: Accounts for manufacturability, ensuring real-world feasibility. |
-| - **Extensibility**: Includes baseline algorithms (e.g., genetic algorithm) with sample scripts for data generation and training. |
-| - **Experiment Tracking & Visualization**: Integrates with [Weights & Biases](https://wandb.ai/home) and TensorBoard. |
+✨ **Integrating adjoint sensitivity analysis with diffusion models can generate high-performance and interesting structures!**
 
+Key features:
+- **Adjoint Sensitivity Integration**: Seamlessly incorporates adjoint gradients into the diffusion process.
+- **Fabrication Constraints**: Accounts for manufacturability, ensuring real-world feasibility.
+- **Extensibility**: Includes baseline algorithms (e.g., genetic algorithm) with sample scripts for data generation and training.
+- **Experiment Tracking & Visualization**: Integrates with [Weights & Biases](https://wandb.ai/home) and TensorBoard.
 
 ---
 
@@ -122,22 +123,22 @@ We visualize the performance of AdjointDiffusion across different tasks and conf
 
 ### Optimization Convergence and Comparisons
 
-![Performance Plot 1](results/Result1.png)
+![Performance Plot 1](images/Result1.png)
 
 
 
 ### Optimization Convergence and Comparisons 2
 
-![Performance Plot 2](results/Result2.png)
+![Performance Plot 2](images/Result2.png)
 
 
 ### Comparison of Generated Structures
 
-![Bar Plots](results/Result2-2.png)
+![Bar Plots](images/Result2-2.png)
 
 ### Color Router Design
 
-![Color Router](results/Result-colorrouter.png)
+![Color Router](images/Result-colorrouter.png)
 
 ---
 
