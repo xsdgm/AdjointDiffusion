@@ -1,6 +1,6 @@
 # AdjointDiffusion
 
-\textit{AdjointDiffusion} is a new method for structural optimization using diffusion models. 
+**AdjointDiffusion** is a new method for structural optimization using diffusion models. 
 It is a **physics-guided and fabrication-aware structural optimization** leveraging diffusion models augmented with adjoint gradient. By combining powerful generative models with adjoint sensitivity analysis, this approach can more efficiently discover complex, high-performance designs than the traditional methods.
 
 The codes are provided following the paper named [Physics-guided and fabrication-aware
@@ -20,9 +20,9 @@ structural optimization using diffusion models](https://arxiv.org)
    - [Sampling](#sampling)
    - [Baseline Algorithms](#baseline-algorithms)
 6. [Experiment Logging with Weights & Biases](#experiment-logging-with-weights--biases)
-
 7. [Code Organization](#code-organization)
-8. [Citation](#citation)
+8. [Results](#results)
+9. [Citation](#citation)
 
 ## TL;DR
 
@@ -96,9 +96,8 @@ alternative way: run 02-sample.ipynb
 
 
 
-### 5. Baseline Algorithms
-### Baseline Algorithms
-We provide baseline algorithms in the `./baseline_algorithms` directory. These include \textit{nlopt} methods like MMA for comparison.
+5. Baseline Algorithms
+We provide baseline algorithms in the `./baseline_algorithms` directory. These include **nlopt** methods like MMA for comparison.
 
 
 ## Experiment Logging with Weights & Biases
@@ -114,6 +113,47 @@ wandb login
 
 ---
 
+
+
+## Results
+
+We visualize the performance of AdjointDiffusion across different tasks and configurations.
+
+
+### Optimization Convergence and Comparisons
+
+![Performance Plot 1](results/Result1.png)
+
+
+
+### Optimization Convergence and Comparisons 2
+
+![Performance Plot 2](results/Result2.png)
+
+
+### Comparison of Generated Structures
+
+![Bar Plots](results/Result2-2.png)
+
+### Color Router Design
+
+![Color Router](results/Result-colorrouter.png)
+
+---
+
+## Code Organization
+
+```
+AdjointDiffusion/
+├── dataset_generation.py       # Dataset generation script
+├── main.py                     # Main training/sampling script
+├── requirements.txt            # Python dependencies
+├── baseline_algorithms/                    # Baseline algorithms
+├── experiments/                # Logs and checkpoints
+└── ...
+```
+
+---
 
 ## Citation
 
