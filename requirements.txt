@@ -1,0 +1,16 @@
+# Note that the meep library might have an issue with installation. Refer to the README for further information.
+
+torch>=2.1.0
+torchvision>=0.16.0
+numpy>=1.23
+scipy>=1.11
+matplotlib>=3.8
+pillow>=10.0
+mpi4py>=3.1
+blobfile>=2.0
+tqdm>=4.66
+wandb>=0.16
+nlopt>=2.7.1
+meep>=1.24.0
+autograd>=1.6
+scikit-image>=0.22
