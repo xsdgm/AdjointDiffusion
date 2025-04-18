@@ -32,7 +32,7 @@ Key features:
 - **Adjoint Sensitivity Integration**: Seamlessly incorporates adjoint gradients into the diffusion process.
 - **Fabrication Constraints**: Accounts for manufacturability, ensuring real-world feasibility.
 - **Extensibility**: Includes baseline algorithms (e.g., genetic algorithm) with sample scripts for data generation and training.
-- **Experiment Tracking & Visualization**: Integrates with [Weights & Biases](https://wandb.ai/home) and TensorBoard.
+- **Experiment Tracking & Visualization**: Integrates with [Weights & Biases](https://wandb.ai/home).
 
 ---
 
