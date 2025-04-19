@@ -130,7 +130,7 @@ We visualize the performance of AdjointDiffusion across different tasks and conf
 
 ### Comparison of Generated Structures - Problem Setup 1 (Waveguide)
 
-![Bar Plots](images/result1-2.png)
+![Bar Plots](images/Result1-2.png)
 
 
 ### Optimization Convergence and Comparisons 2 - Problem Setup 2 (CIS)
