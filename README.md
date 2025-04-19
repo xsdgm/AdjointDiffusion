@@ -166,11 +166,12 @@ We visualize the performance of AdjointDiffusion across different tasks and conf
 ```
 AdjointDiffusion/
 ├── dataset_generation.py       # Dataset generation script
-├── main.py                     # Main training/sampling script
+├── image_train.py              # Main training script
+├── image_sample.py             # Main sampling script
 ├── requirements.txt            # Python dependencies
 ├── baseline_algorithms/        # Baseline algorithms
-├── experiments/                # Logs and checkpoints
-└── ...
+├── guided_diffusion/           # Backend of diffusion models
+└── baseline_algorithms/        # Baseline algorithms (nlopt, Gradient Ascent)
 ```
 
 ---
