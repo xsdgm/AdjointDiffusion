@@ -77,9 +77,7 @@ conda install --file requirements.txt
 python dataset_generation.py
 ```
 
-The data will be saved at `datasets/<n>/sigma<k>/struct/`,  
-where `n` is the structure dimension (e.g., `n=64` generates 64×64 binary structures)  
-and `k` is the variance of the Gaussian filter (a larger `k` increases the minimum feature size).
+- The data will be saved at `datasets/<n>/sigma<k>/struct/`, where `n` is the structure dimension (e.g., `n=64` generates 64×64 binary structures) and `k` is the variance of the Gaussian filter (a larger `k` increases the minimum feature size).
 
 2. **Update the training and sampling scripts** to specify the appropriate output directories.
 
@@ -89,7 +87,7 @@ and `k` is the variance of the Gaussian filter (a larger `k` increases the minim
 ./01-train.sh
 ```
 
-Alternatively: run `02-train.ipynb`
+- Alternatively: run `02-train.ipynb`
 
 4. **Sample and optimize structures:**
 
@@ -97,7 +95,7 @@ Alternatively: run `02-train.ipynb`
 ./01-sample.sh
 ```
 
-Alternatively: run `02-sample.ipynb`
+- Alternatively: run `02-sample.ipynb`
 
 
 5. **View outputs**
@@ -107,6 +105,7 @@ Alternatively: run `02-sample.ipynb`
 
 
 6. **Baseline Algorithms**
+
 We provide baseline algorithms in the `./baseline_algorithms` directory. These include **nlopt** methods like MMA for comparison.
 
 
