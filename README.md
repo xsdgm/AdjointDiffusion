@@ -71,33 +71,42 @@ conda install --file requirements.txt
 
 ## Quick Start
 
-1. Generate a dataset:
+1. **Generate a dataset:**
+
 ```bash
 python dataset_generation.py
 ```
 
-2. Train a diffusion model:
+The data will be saved at `datasets/<n>/sigma<k>/struct/`,  
+where `n` is the structure dimension (e.g., `n=64` generates 64×64 binary structures)  
+and `k` is the variance of the Gaussian filter (a larger `k` increases the minimum feature size).
+
+2. **Update the training and sampling scripts** to specify the appropriate output directories.
+
+3. **Train a diffusion model:**
+
 ```bash
 ./01-train.sh
 ```
 
-alternative way: run 02-train.ipynb
+Alternatively: run `02-train.ipynb`
 
+4. **Sample and optimize structures:**
 
-3. Sample and optimize structures:
 ```bash
 ./01-sample.sh
 ```
 
-alternative way: run 02-sample.ipynb
+Alternatively: run `02-sample.ipynb`
 
-4. View outputs
+
+5. **View outputs**
 - Every output (performance, structure) is logged in [wandb](#experiment-logging-with-weights--biases).
 - Checkpoints (and logs) are saved in `./experiments/<run_name>`
 
 
 
-5. Baseline Algorithms
+6. **Baseline Algorithms**
 We provide baseline algorithms in the `./baseline_algorithms` directory. These include **nlopt** methods like MMA for comparison.
 
 
@@ -142,7 +151,12 @@ We visualize the performance of AdjointDiffusion across different tasks and conf
 ![Bar Plots](images/Result2-2.png)
 
 
-### Color Router Design
+### Result: Waveguide
+
+![Waveguide](images/Result-waveguide.png)
+
+
+### Result: Color Router 
 
 ![Color Router](images/Result-colorrouter.png)
 
@@ -155,7 +169,7 @@ AdjointDiffusion/
 ├── dataset_generation.py       # Dataset generation script
 ├── main.py                     # Main training/sampling script
 ├── requirements.txt            # Python dependencies
-├── baseline_algorithms/                    # Baseline algorithms
+├── baseline_algorithms/        # Baseline algorithms
 ├── experiments/                # Logs and checkpoints
 └── ...
 ```
