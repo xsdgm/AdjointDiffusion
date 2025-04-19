@@ -121,20 +121,26 @@ wandb login
 We visualize the performance of AdjointDiffusion across different tasks and configurations.
 
 
-### Optimization Convergence and Comparisons
+### Optimization Convergence and Comparisons - Problem Setup 1 (Waveguide)
 
 ![Performance Plot 1](images/Result1.png)
 
 
 
-### Optimization Convergence and Comparisons 2
+
+### Comparison of Generated Structures - Problem Setup 1 (Waveguide)
+
+![Bar Plots](images/Result1-2.png)
+
+
+### Optimization Convergence and Comparisons 2 - Problem Setup 2 (CIS)
 
 ![Performance Plot 2](images/Result2.png)
 
-
-### Comparison of Generated Structures
+### Comparison of Generated Structures - Problem Setup 2 (CIS)
 
 ![Bar Plots](images/Result2-2.png)
+
 
 ### Color Router Design
 
