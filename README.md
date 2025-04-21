@@ -1,5 +1,8 @@
 # AdjointDiffusion
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE) [![Python: 3.9+](https://img.shields.io/badge/python-3.9%2B-blue.svg)](https://www.python.org/) [![Build Status](https://img.shields.io/github/actions/workflow/status/dongjin-seo2020/AdjointDiffusion/ci.yml?branch=main)](https://github.com/dongjin-seo2020/AdjointDiffusion/actions)  
+
+
 **AdjointDiffusion** is a new method for structural optimization using diffusion models. 
 It is a **physics-guided and fabrication-aware structural optimization** leveraging diffusion models augmented with adjoint gradient. By combining powerful generative models with adjoint sensitivity analysis, this approach can more efficiently discover complex, high-performance designs than the traditional methods.
 
@@ -14,15 +17,10 @@ structural optimization using diffusion models](https://arxiv.org)
 2. [Intuitive Explanation of Diffusion Models](#intuitive-explanation-of-diffusion-models)
 3. [Installation](#installation)  
 4. [Quick Start](#quick-start)  
-5. [Usage](#usage)  
-   - [Dataset Generation](#dataset-generation)
-   - [Training](#training)
-   - [Sampling](#sampling)
-   - [Baseline Algorithms](#baseline-algorithms)
-6. [Experiment Logging with Weights & Biases](#experiment-logging-with-weights--biases)
+5. [Experiment Logging with Weights & Biases](#experiment-logging-with-weights--biases)
+6. [Results](#results)
 7. [Code Organization](#code-organization)
-8. [Results](#results)
-9. [Citation](#citation)
+8. [Citation](#citation)
 
 ## TL;DR
 
@@ -81,6 +79,20 @@ python dataset_generation.py
 
 2. **Update the training and sampling scripts** to specify the appropriate output directories.
 
+- For example, for `train.sh`, you should specify the variables as:
+```sh
+DATA_DIR=/path/to/datasets
+LOG_DIR=path/to/experiments
+GPU_ID=0
+```
+
+- Or, you can set environment variables (Linux/macOS):
+```bash
+export DATA_DIR=/path/to/datasets
+export LOG_DIR=/path/to/experiments
+export GPU_ID=0
+```
+
 3. **Train a diffusion model:**
 
 ```bash
@@ -101,7 +113,10 @@ python dataset_generation.py
 5. **View outputs**
 - Every output (performance, structure) is logged in [wandb](#experiment-logging-with-weights--biases).
 - Checkpoints (and logs) are saved in `./experiments/<run_name>`
-
+- You can also view results by typing in your console:
+```bash
+wandb dashboard
+```
 
 
 6. **Baseline Algorithms**
@@ -141,11 +156,11 @@ We visualize the performance of AdjointDiffusion across different tasks and conf
 ![Bar Plots](images/Result1-2.png)
 
 
-### Optimization Convergence and Comparisons 2 - Problem Setup 2 (CIS)
+### Optimization Convergence and Comparisons 2 - Problem Setup 2 (Multi-wavelength Splitter)
 
 ![Performance Plot 2](images/Result2.png)
 
-### Comparison of Generated Structures - Problem Setup 2 (CIS)
+### Comparison of Generated Structures - Problem Setup 2 (Multi-wavelength Splitter)
 
 ![Bar Plots](images/Result2-2.png)
 
@@ -155,7 +170,7 @@ We visualize the performance of AdjointDiffusion across different tasks and conf
 ![Waveguide](images/Result-waveguide.png)
 
 
-### Result: Color Router 
+### Result: Multi-wavelength Splitter
 
 ![Color Router](images/Result-colorrouter.png)
 
@@ -169,7 +184,6 @@ AdjointDiffusion/
 ├── image_train.py              # Main training script
 ├── image_sample.py             # Main sampling script
 ├── requirements.txt            # Python dependencies
-├── baseline_algorithms/        # Baseline algorithms
 ├── guided_diffusion/           # Backend of diffusion models
 └── baseline_algorithms/        # Baseline algorithms (nlopt, Gradient Ascent)
 ```
