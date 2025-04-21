@@ -3,6 +3,8 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE) [![Python: 3.9+](https://img.shields.io/badge/python-3.9%2B-blue.svg)](https://www.python.org/) 
 
 
+![logo](images/logo.png)
+
 **AdjointDiffusion** is a new method for structural optimization using diffusion models. 
 It is a **physics-guided and fabrication-aware structural optimization** leveraging diffusion models augmented with adjoint gradient. By combining powerful generative models with adjoint sensitivity analysis, this approach can more efficiently discover complex, high-performance designs than the traditional methods.
 
