@@ -1,6 +1,6 @@
 # AdjointDiffusion
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE) [![Python: 3.9+](https://img.shields.io/badge/python-3.9%2B-blue.svg)](https://www.python.org/) [![Build Status](https://img.shields.io/github/actions/workflow/status/dongjin-seo2020/AdjointDiffusion/ci.yml?branch=main)](https://github.com/dongjin-seo2020/AdjointDiffusion/actions)  
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE) [![Python: 3.9+](https://img.shields.io/badge/python-3.9%2B-blue.svg)](https://www.python.org/) 
 
 
 **AdjointDiffusion** is a new method for structural optimization using diffusion models. 
