@@ -206,4 +206,12 @@ If you use this code, please cite the following paper:
 
 ---
 
+
+## Acknowledgements
+
+Parts of this repository are adapted from [OpenAI's guided-diffusion](https://github.com/openai/guided-diffusion), which is licensed under the MIT License.
+
+We thank the OpenAI team for their contribution. Significant modifications have been made to enable adjoint sensitivity integration and fabrication-aware optimization.
+
+---
 **Happy Diffusing & Optimizing!**
