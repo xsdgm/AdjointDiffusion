@@ -93,6 +93,10 @@ export LOG_DIR=/path/to/experiments
 export GPU_ID=0
 ```
 
+- For detailed usage examples, including training and sampling with actual settings, see:
+  - [training_examples.ipynb](./training_examples.ipynb)
+  - [sampling_example.ipynb](./sampling_example.ipynb)
+
 3. **Train a diffusion model:**
 
 ```bash
