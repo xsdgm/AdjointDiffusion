@@ -82,7 +82,7 @@ pip install -r requirements.txt
 
 
 If you encounter errors while installing `mpi4py`, try the following steps:
-``bash
+```bash
 apt --fix-broken install
 apt install mpich
 pip install mpi4py
