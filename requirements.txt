@@ -1,16 +1,14 @@
-# Note that the meep library might have an issue with installation. Refer to the README for further information.
+# Note that the meep library has to be installed separately for the compatibility of other libraries, such as torch. For further information, refer to the README.
 
-torch>=2.1.0
-torchvision>=0.16.0
+torch==2.0.1+cu117 torchvision==0.15.2+cu117 --index-url https://download.pytorch.org/whl/cu117
 numpy>=1.23
 scipy>=1.11
 matplotlib>=3.8
 pillow>=10.0
-mpi4py>=3.1
-blobfile>=2.0
 tqdm>=4.66
 wandb>=0.16
 nlopt>=2.7.1
-meep>=1.24.0
 autograd>=1.6
 scikit-image>=0.22
+blobfile==2.1.1
+mpi4py==3.1.6

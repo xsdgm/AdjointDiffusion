@@ -6,7 +6,7 @@
 ![logo](images/logo.png)
 
 **AdjointDiffusion** is a new method for structural optimization using diffusion models. 
-It is a **physics-guided and fabrication-aware structural optimization** leveraging diffusion models augmented with adjoint gradient. By combining powerful generative models with adjoint sensitivity analysis, this approach can more efficiently discover complex, high-performance designs than the traditional methods.
+It is a **physics-guided and fabrication-aware structural optimization** using diffusion models augmented with adjoint gradient. By combining powerful generative models with adjoint sensitivity analysis, this approach can more efficiently discover complex, high-performance designs than the traditional methods.
 
 The codes are provided following the paper named [Physics-guided and fabrication-aware
 structural optimization using diffusion models](https://arxiv.org)
@@ -46,6 +46,8 @@ Imagine an ink drop falling into water — it slowly spreads and dissolves. Diff
 
 ## Installation
 
+This setup ensures compatibility between Meep and PyTorch. If you find any alternatives, feel free to contribute improvements via pull requests!
+
 ### 1. Clone the repository
 ```bash
 git clone https://github.com/dongjin-seo2020/AdjointDiffusion.git
@@ -54,17 +56,39 @@ cd AdjointDiffusion
 
 ### 2. Set up a Python environment (recommended)
 
+
+#### Using conda
+To create and activate the recommended environment with necessary dependencies:
+
+```bash
+conda create -n adjoint_diffusion -c conda-forge pymeep pymeep-extras python=3.9 
+conda activate adjoint_diffusion
+```
+
+
+### 3. Installation of other libraries
+
+
+#### Using conda
+```bash
+conda install --file requirements.txt
+```
+
+If you're using `pip`, install the required packages listed in `requirements.txt`:
 #### Using pip
 ```bash
 pip install -r requirements.txt
 ```
 
-#### Using conda
-```bash
-conda create -n adjoint_diffusion python=3.9
-conda activate adjoint_diffusion
-conda install --file requirements.txt
+
+If you encounter errors while installing `mpi4py`, try the following steps:
+``bash
+apt --fix-broken install
+apt install mpich
+pip install mpi4py
 ```
+Make sure you have root access when using `apt`.
+
 
 
 ---
