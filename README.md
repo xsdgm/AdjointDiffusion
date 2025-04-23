@@ -79,6 +79,21 @@ pip install -r requirements.txt
 ```
 
 
+### 4. Error Handling
+
+
+If you encounter permission-related issues when trying to run the training script, make sure it is executable by running:
+
+```bash
+chmod +x 01-train.sh
+```
+
+The, you can execute it with:
+
+```bash
+./01-train.sh
+```
+
 If you encounter errors while installing `mpi4py`, try the following steps:
 ```bash
 apt --fix-broken install
