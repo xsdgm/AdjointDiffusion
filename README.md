@@ -167,6 +167,40 @@ wandb dashboard
 We provide baseline algorithms in the `./baseline_algorithms` directory. These include **nlopt** methods like MMA for comparison.
 
 
+---
+
+## Customize Your Simulation
+
+If you'd like to **change the physical simulation setup** used during training or sampling (e.g., from waveguide to multi-wavelength splitter):
+
+1. **Create your simulation class** in `guided_diffusion/simulation.py`.
+
+   Define a class that computes both the figure-of-merit (FoM) and its adjoint gradient.
+   For example:
+   ```python
+   class YourSimClass:
+       def __init__(self, ...):
+           ...
+       def compute_fom(self, structure):
+           ...
+       def compute_adjoint(self, structure):
+           ...
+    ```
+
+
+2. **Modify the import** in `guided_diffusion/gaussian_diffusion.py`:
+
+   Replace the existing import line with:
+   ```python
+   from guided_diffusion.simulation import YourSimClass
+   ```
+
+
+Now, your custom simulation will be used during the reverse diffusion process.
+
+---
+
+
 ## Experiment Logging with Weights & Biases
 
 We use [wandb](https://wandb.ai/home) for logging and visualization.
