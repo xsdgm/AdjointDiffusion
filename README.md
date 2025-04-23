@@ -68,14 +68,12 @@ conda activate adjoint_diffusion
 
 ### 3. Installation of other libraries
 
-
-#### Using conda
+Install torch following the command (recommended):
 ```bash
-conda install --file requirements.txt
+pip install torch==2.0.1+cu117 torchvision==0.15.2+cu117 --index-url https://download.pytorch.org/whl/cu117
 ```
 
-If you're using `pip`, install the required packages listed in `requirements.txt`:
-#### Using pip
+Install the required packages listed in `requirements.txt`:
 ```bash
 pip install -r requirements.txt
 ```

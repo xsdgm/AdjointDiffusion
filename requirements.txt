@@ -1,7 +1,6 @@
 # Note that the meep library has to be installed separately for the compatibility of other libraries, such as torch. For further information, refer to the README.
 
-torch==2.0.1+cu117 torchvision==0.15.2+cu117 --index-url https://download.pytorch.org/whl/cu117
-numpy>=1.23
+numpy==1.26.4
 scipy>=1.11
 matplotlib>=3.8
 pillow>=10.0
