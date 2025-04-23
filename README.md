@@ -19,10 +19,11 @@ structural optimization using diffusion models](https://arxiv.org)
 2. [Intuitive Explanation of Diffusion Models](#intuitive-explanation-of-diffusion-models)
 3. [Installation](#installation)  
 4. [Quick Start](#quick-start)  
-5. [Experiment Logging with Weights & Biases](#experiment-logging-with-weights--biases)
-6. [Results](#results)
-7. [Code Organization](#code-organization)
-8. [Citation](#citation)
+5. [Customize Your Simulation](#customize-your-simulation)  
+6. [Experiment Logging with Weights & Biases](#experiment-logging-with-weights--biases)
+7. [Results](#results)
+8. [Code Organization](#code-organization)
+9. [Citation](#citation)
 
 ## TL;DR
 
