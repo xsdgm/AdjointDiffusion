@@ -172,12 +172,11 @@ We provide baseline algorithms in the `./baseline_algorithms` directory. These i
 
 ## Customize Your Simulation
 
-If you'd like to **change the physical simulation setup** used during training or sampling (e.g., from waveguide to multi-wavelength splitter):
+If you'd like to **integrate a custom physical simulation** into the reverse diffusion process, follow these steps:
 
-1. **Create your simulation class** in `guided_diffusion/simulation.py`.
+1. **Implement Your simulation class** in `guided_diffusion/simulation.py`.
 
-   Define a class that computes both the figure-of-merit (FoM) and its adjoint gradient.
-   For example:
+   Create a class that defines how to compute the figure of merit (FoM) and its corresponding adjoint gradient. For example:
    ```python
    class YourSimClass:
        def __init__(self, ...):
@@ -189,13 +188,28 @@ If you'd like to **change the physical simulation setup** used during training o
     ```
 
 
-2. **Modify the import** in `guided_diffusion/gaussian_diffusion.py`:
+2. **Update the import** in `guided_diffusion/gaussian_diffusion.py`:
 
-   Replace the existing import line with:
+   Replace the existing simulation import with your custom class:
    ```python
    from guided_diffusion.simulation import YourSimClass
    ```
 
+3. **Plug your simulation into the sampling loop** in `guided_diffusion/gaussian_diffusion.py`
+In `guided_diffusion/gaussian_diffusion.py`, locate where `simulation_()` is called (typically inside the `p_sample()` function), and replace it with your custom simulation logic. Make sure your class is initialized properly and passed via `my_kwargs`.
+For example, for `my_kwargs`:
+```python
+my_kwargs = {
+    "sim_guided": True,
+    "simulation_": YourSimClass(...),
+    "eta": 0.05,
+    "inter_rate": 25,
+    "stoptime": 0.1,
+    "guidance_type": "dps",  # or "dds"
+    "exp_name": "experiment1",
+    ...
+}
+```
 
 Now, your custom simulation will be used during the reverse diffusion process.
 
