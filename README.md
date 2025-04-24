@@ -156,11 +156,7 @@ export GPU_ID=0
 
 5. **View outputs**
 - Every output (performance, structure) is logged in [wandb](#experiment-logging-with-weights--biases).
-- Checkpoints (and logs) are saved in `./experiments/<run_name>`
-- You can also view results by typing in your console:
-```bash
-wandb dashboard
-```
+- Logs and generated structures are saved in `./logs/<run_name>`
 
 
 6. **Baseline Algorithms**
