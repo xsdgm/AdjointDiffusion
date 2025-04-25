@@ -9,7 +9,7 @@
 It is a **physics-guided and fabrication-aware structural optimization** using diffusion models augmented with adjoint gradient. By combining powerful generative models with adjoint sensitivity analysis, this approach can more efficiently discover complex, high-performance designs than the traditional methods.
 
 The codes are provided following the paper named [Physics-guided and fabrication-aware
-structural optimization using diffusion models](https://arxiv.org)
+structural optimization using diffusion models](https://arxiv.org/abs/2504.17077)
 
 ---
 
@@ -288,7 +288,7 @@ If you use this code, please cite the following paper:
   author  = {Dongjin Seo†, Soobin Um†, Sangbin Lee, Jong Chul Ye*, Haejun Chung*},
   journal = {arXiv},
   year    = {2025},
-  url     = {https://arxiv.org/}
+  url     = {https://arxiv.org/abs/2504.17077}
 }
 ```
 
