@@ -74,6 +74,9 @@ Install `torch` following the command (recommended):
 pip install torch==2.0.1+cu117 torchvision==0.15.2+cu117 --index-url https://download.pytorch.org/whl/cu117
 ```
 
+Note: It has been observed that newer NVIDIA GPUs (e.g., RTX 5090) may not be compatible with this specific version of PyTorch. If you encounter issues, please refer to the official PyTorch installation guide to find a version compatible with your hardware:
+https://pytorch.org/get-started/locally/
+
 Install the required packages listed in `requirements.txt`:
 ```bash
 pip install -r requirements.txt
