@@ -119,7 +119,7 @@ python dataset_generation.py
 ```
 
 - The data will be saved at `datasets/<n>/sigma<k>/struct/`, where `n` is the structure dimension (e.g., `n=64` generates 64×64 binary structures) and `k` is the variance of the Gaussian filter (a larger `k` increases the minimum feature size).
-- Note: To reproduce the condition in the paper, run the code for `k=2`, `k=5`, and `k=8` (three times).
+- Note: To reproduce the condition in the paper, run the code for `k=2`, `k=5`, and `k=8` (three times). Or you can download our pretrained network from https://zenodo.org/records/15399997
 - Note: You can also use your own dataset here! Provide your fabrication-satisfying image dataset and train the diffusion model with it!
 
 2. **Update the training and sampling scripts** to specify the appropriate output directories.
