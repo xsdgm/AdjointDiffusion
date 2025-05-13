@@ -120,6 +120,7 @@ python dataset_generation.py
 
 - The data will be saved at `datasets/<n>/sigma<k>/struct/`, where `n` is the structure dimension (e.g., `n=64` generates 64×64 binary structures) and `k` is the variance of the Gaussian filter (a larger `k` increases the minimum feature size).
 - Note: To reproduce the condition in the paper, run the code for `k=2`, `k=5`, and `k=8` (three times).
+- Note: You can also use your own dataset here! Provide your fabrication-satisfying image dataset and train the diffusion model with it!
 
 2. **Update the training and sampling scripts** to specify the appropriate output directories.
 
@@ -150,7 +151,7 @@ export GPU_ID=0
 - Alternatively: run `02-train.ipynb`
 - Note: Set `--class_cond` to `False` if your dataset contains only a single structural condition (i.e., no class conditioning needed).
 If you have multiple structural conditions (e.g., different fabrication constraints), set it to `True` to enable class-conditional training.
-- Note: Note: The training process will continue indefinitely unless manually stopped. In our setup, training for around 25,000 steps produced satisfactory results, though fewer steps may also be sufficient. If you are using a customized dataset, the optimal number of steps may vary.
+- Note: The training process will continue indefinitely unless manually stopped. In our setup, training for around 25,000 steps produced satisfactory results, though fewer steps may also be sufficient. If you are using a customized dataset, the optimal number of steps may vary.
 
 
 4. **Sample and optimize structures:**
