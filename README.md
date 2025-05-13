@@ -147,6 +147,10 @@ export GPU_ID=0
 ```
 
 - Alternatively: run `02-train.ipynb`
+- Note: Set `--class_cond` to `False` if your dataset contains only a single structural condition (i.e., no class conditioning needed).
+If you have multiple structural conditions (e.g., different fabrication constraints), set it to `True` to enable class-conditional training.
+
+
 
 4. **Sample and optimize structures:**
 
