@@ -119,6 +119,7 @@ python dataset_generation.py
 ```
 
 - The data will be saved at `datasets/<n>/sigma<k>/struct/`, where `n` is the structure dimension (e.g., `n=64` generates 64×64 binary structures) and `k` is the variance of the Gaussian filter (a larger `k` increases the minimum feature size).
+- Note: To reproduce the condition in the paper, run the code for `k=2`, `k=5`, and `k=8` (three times).
 
 2. **Update the training and sampling scripts** to specify the appropriate output directories.
 
@@ -149,7 +150,7 @@ export GPU_ID=0
 - Alternatively: run `02-train.ipynb`
 - Note: Set `--class_cond` to `False` if your dataset contains only a single structural condition (i.e., no class conditioning needed).
 If you have multiple structural conditions (e.g., different fabrication constraints), set it to `True` to enable class-conditional training.
-
+- Note: Note: The training process will continue indefinitely unless manually stopped. In our setup, training for around 25,000 steps produced satisfactory results, though fewer steps may also be sufficient. If you are using a customized dataset, the optimal number of steps may vary.
 
 
 4. **Sample and optimize structures:**
@@ -159,6 +160,9 @@ If you have multiple structural conditions (e.g., different fabrication constrai
 ```
 
 - Alternatively: run `02-sample.ipynb`
+- Note: Set `--class_cond` to `False` if your dataset contains only a single structural condition (i.e., no class conditioning needed).
+If you have multiple structural conditions (e.g., different fabrication constraints), set it to `True` to enable class-conditional training.
+- Note: We recommend to use the model where the name is `ema_0.9999_*.pt`. The number in `*` means the training step number. `ema` is for `Exponential Moving Average`.
 
 
 5. **View outputs**

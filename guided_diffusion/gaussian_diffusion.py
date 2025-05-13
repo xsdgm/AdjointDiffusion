@@ -925,7 +925,7 @@ class GaussianDiffusion:
         cfg = {
             'eta': my_kwargs['eta'],
             'tsr': len(indices),
-            'class': model_kwargs['y'][0].item() if model_kwargs is not None else None,
+            'class': model_kwargs['y'][0].item() if model_kwargs is not None and 'y' in model_kwargs else None,
         }
         wandb.config.update(cfg)
 
