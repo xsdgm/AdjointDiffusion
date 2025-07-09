@@ -329,7 +329,7 @@ for iters in range(num_betas):
     x_image = x.reshape(Nx, Ny,1)
     print(x_image.shape)
 
-    learning_rate = LR#/ adjgrad_norm
+    learning_rate = LR/ adjgrad_norm
     #learning_rate = LR
     wandb.log({
                     'fom ': f0,
