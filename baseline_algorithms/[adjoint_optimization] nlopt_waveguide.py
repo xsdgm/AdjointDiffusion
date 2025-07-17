@@ -385,9 +385,9 @@ for iters in range(num_betas):
     })
     wandb.config.update({'algorithm': algorithm_name(algorithm)})
 
-# Final thresholding of the design
-x[x >= 0.5] = 1
-x[x < 0.5] = 0
+# Final thresholding of the design : must be deleted!!
+#x[x >= 0.5] = 1
+#x[x < 0.5] = 0
 
 x_final = mapping(x, eta_i, mp.inf)
 f0, dJ_du = opt([x_final])

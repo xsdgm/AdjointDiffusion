@@ -345,10 +345,10 @@ for iters in range(num_betas):
 
 
 ## final
-
-x [x>0.5] = 1
-x [x==0.5] = 1
-x [x<0.5] = 0
+# Final thresholding of the design : must be deleted!!
+#x [x>0.5] = 1
+#x [x==0.5] = 1
+#x [x<0.5] = 0
 
 x_final = mapping(x, eta_i, mp.inf)
 
