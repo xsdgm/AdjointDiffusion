@@ -29,6 +29,9 @@ structural optimization using diffusion models](https://arxiv.org/abs/2504.17077
 
 ✨ **Integrating adjoint sensitivity analysis with diffusion models can generate high-performance and interesting structures!**
 
+![comparison](images/comparison.png)
+
+
 Key features:
 - **Adjoint Sensitivity Integration**: Seamlessly incorporates adjoint gradients into the diffusion process.
 - **Fabrication Constraints**: Accounts for manufacturability, ensuring real-world feasibility.
