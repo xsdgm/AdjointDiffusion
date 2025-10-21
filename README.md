@@ -265,7 +265,7 @@ We visualize the performance of AdjointDiffusion across different tasks and conf
 
 ### Comparison of Generated Structures - Problem Setup 2 (Multi-wavelength Splitter)
 
-![Bar Plots](images/Result2-2.png)
+![Bar Plots](images/result2-2.png)
 
 
 ### Result: Waveguide
