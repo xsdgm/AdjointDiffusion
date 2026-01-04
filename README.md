@@ -9,7 +9,7 @@
 It is a **physics-guided and fabrication-aware structural optimization** using diffusion models augmented with adjoint gradient. By combining powerful generative models with adjoint sensitivity analysis, this approach can more efficiently discover complex, high-performance designs than the traditional methods.
 
 The codes are provided following the paper named [Physics-guided and fabrication-aware
-structural optimization using diffusion models](https://arxiv.org/abs/2504.17077)
+structural optimization using diffusion models](https://arxiv.org/abs/2504.17077](https://pubs.acs.org/doi/10.1021/acsphotonics.5c00993)
 
 ---
 
@@ -298,12 +298,13 @@ AdjointDiffusion/
 If you use this code, please cite the following paper:
 
 ```bibtex
-@article{YourCitation,
-  title   = {Physics-guided and fabrication-aware structural optimization using diffusion models},
-  author  = {Dongjin Seo†, Soobin Um†, Sangbin Lee, Jong Chul Ye*, Haejun Chung*},
-  journal = {arXiv},
-  year    = {2025},
-  url     = {https://arxiv.org/abs/2504.17077}
+@article{Seo2026DiffusionPhotonics,
+  title   = {Physics-Guided and Fabrication-Aware Inverse Design of Photonic Devices Using Diffusion Models},
+  author  = {Seo, Dongjin and Um, Soobin and Lee, Sangbin and Ye, Jong Chul and Chung, Haejun},
+  journal = {ACS Photonics},
+  year    = {2026},
+  doi     = {10.1021/acsphotonics.5c00993},
+  url     = {https://doi.org/10.1021/acsphotonics.5c00993}
 }
 ```
 
