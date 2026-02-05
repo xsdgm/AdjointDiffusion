@@ -1,0 +1,3 @@
+FoM (center freq): 0.2084976944051101
+TE bandwidth (top port, FWHM): 0.057499999999999996
+TM bandwidth (bottom port, FWHM): 0.0

@@ -1,0 +1,11 @@
+{
+  "npz_path": "logs/sim-guided/top_tsr=100_class=0_eta=1/samples_1x64x64x1_bin.npz",
+  "sample_index": 0,
+  "fom_te": 0.9352512641989023,
+  "fom_tm": 0.9307105887755063,
+  "fom_total": 1.8659618529744084,
+  "grad_te_min": -0.007770693177535589,
+  "grad_te_max": 0.03777677495721655,
+  "grad_tm_min": -0.01511382292267446,
+  "grad_tm_max": 0.01735170435839168
+}

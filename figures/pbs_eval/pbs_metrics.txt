@@ -1,0 +1,5 @@
+FoM_total=0.080721
+FoM_TE=1.120882
+FoM_TM=-1.040161
+TE_top_-3dB_bw_um=0.089497
+TM_bottom_-3dB_bw_um=0.000000

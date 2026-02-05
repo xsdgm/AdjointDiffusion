@@ -453,3 +453,153 @@ def waveguide_sim(struct_np, t, exp_name, prop_dir='top',
     #print(f0)
     #print(dJ_du)
     return fom, g
+
+
+def pbs_sim(struct_np, t, exp_name, prop_dir='top',
+            save_inter=False, interval=1, flag_last=False):
+    import numpy as np
+    import meep as mp
+    import meep.adjoint as mpa
+    import autograd.numpy as npa
+    import wandb
+
+    mp.verbosity(0)
+    struct_np[struct_np > 1] = 1
+    struct_np[struct_np < 0] = 0
+    struct_np = np.squeeze(struct_np)
+
+    Si = mp.Medium(index=3.4)
+    SiO2 = mp.Medium(index=1.44)
+
+    resolution = 21
+    Sx = 10
+    Sy = 10
+    cell_size = mp.Vector3(Sx, Sy)
+    pml_layers = [mp.PML(2.0)]
+
+    fcen = 1 / 1.55
+    width = 0.2
+    fwidth = width * fcen
+
+    source_center = [-2.7, 0, 0]
+    source_size = mp.Vector3(0, 2, 0)
+    kpoint = mp.Vector3(1, 0, 0)
+
+    design_region_resolution = 21
+    Nx = 64
+    Ny = 64
+
+    cross_weight = 0.5
+
+    def _safe_reset():
+        try:
+            mp.reset_meep()
+        except Exception:
+            pass
+
+    def _run_pol(pol, prefer_dir):
+        _safe_reset()
+        parity = mp.ODD_Z if pol == "TE" else mp.EVEN_Z
+        src = mp.GaussianSource(frequency=fcen, fwidth=fwidth)
+        source = [
+            mp.EigenModeSource(
+                src,
+                eig_parity=parity,
+                eig_band=1,
+                direction=mp.NO_DIRECTION,
+                eig_kpoint=kpoint,
+                size=source_size,
+                center=source_center,
+            )
+        ]
+
+        design_variables = mp.MaterialGrid(
+            mp.Vector3(Nx, Ny), SiO2, Si, grid_type="U_MEAN"
+        )
+        design_region = mpa.DesignRegion(
+            design_variables,
+            volume=mp.Volume(center=mp.Vector3(), size=mp.Vector3(3, 3, 0)),
+        )
+
+        geometry = [
+            mp.Block(
+                center=mp.Vector3(x=-Sx / 4), material=Si, size=mp.Vector3(Sx / 2, 1, 0)
+            ),  # horizontal waveguide: left (origin)
+            mp.Block(
+                center=mp.Vector3(y=Sy / 4), material=Si, size=mp.Vector3(1, Sy / 2, 0)
+            ),  # vertical waveguide: top
+            mp.Block(
+                center=mp.Vector3(y=-Sy / 4), material=Si, size=mp.Vector3(1, Sy / 2, 0)
+            ),  # vertical waveguide: bottom
+            mp.Block(
+                center=design_region.center, size=design_region.size, material=design_variables
+            ),  # design region
+        ]
+
+        sim = mp.Simulation(
+            cell_size=cell_size,
+            boundary_layers=pml_layers,
+            geometry=geometry,
+            sources=source,
+            eps_averaging=True,
+            subpixel_tol=1e-4,
+            resolution=resolution,
+        )
+
+        port_source = mpa.EigenmodeCoefficient(
+            sim,
+            mp.Volume(center=mp.Vector3(-2.5, 0, 0), size=mp.Vector3(y=2)),
+            mode=1,
+            eig_parity=parity,
+        )
+        port_top = mpa.EigenmodeCoefficient(
+            sim,
+            mp.Volume(center=mp.Vector3(0, 2.5, 0), size=mp.Vector3(x=2)),
+            mode=1,
+            eig_parity=parity,
+        )
+        port_bottom = mpa.EigenmodeCoefficient(
+            sim,
+            mp.Volume(center=mp.Vector3(0, -2.5, 0), size=mp.Vector3(x=2)),
+            mode=1,
+            eig_parity=parity,
+            forward=False,
+        )
+
+        ob_list = [port_source, port_top, port_bottom]
+
+        def J(source_coef, top_coef, bottom_coef):
+            denom = source_coef + 1e-12
+            top_ratio = npa.abs(top_coef / denom) ** 2
+            bottom_ratio = npa.abs(bottom_coef / denom) ** 2
+            if prefer_dir == "top":
+                return top_ratio - cross_weight * bottom_ratio
+            return bottom_ratio - cross_weight * top_ratio
+
+        opt = mpa.OptimizationProblem(
+            simulation=sim,
+            objective_functions=J,
+            objective_arguments=ob_list,
+            design_regions=[design_region],
+            fcen=fcen,
+            df=0,
+            nf=1,
+        )
+
+        flattened_array = struct_np.flatten()
+        opt.update_design([flattened_array])
+        fom, g = opt([flattened_array])
+        return fom[0], g
+
+    _safe_reset()
+    fom_te, g_te = _run_pol("TE", "top")
+    _safe_reset()
+    fom_tm, g_tm = _run_pol("TM", "bottom")
+
+    fom = fom_te + fom_tm
+    g = g_te + g_tm
+
+    if flag_last:
+        wandb.log({"fom_te": fom_te, "fom_tm": fom_tm, "fom_pbs": fom})
+
+    return fom, g

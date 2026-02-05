@@ -28,7 +28,7 @@ from skimage.measure import euler_number
 from skimage.measure import label as label_
 
 
-from guided_diffusion.simulation import CIS_sim, waveguide_sim
+from guided_diffusion.simulation import CIS_sim, waveguide_sim, pbs_sim
 
 
 # log handler
@@ -148,8 +148,12 @@ def simulation_name(sim_name):  # sim: function
         return CIS_sim
     elif sim_name == "waveguide_sim":
         return waveguide_sim
+    elif sim_name == "pbs_sim":
+        return pbs_sim
     else:
-        raise ValueError(f"Unsupported simulation name '{sim_name}'. Supported names are 'CIS' and 'waveguide'.")
+        raise ValueError(
+            f"Unsupported simulation name '{sim_name}'. Supported names are 'CIS', 'waveguide', and 'pbs'."
+        )
 
 
 def get_named_beta_schedule(schedule_name, num_diffusion_timesteps):
@@ -915,7 +919,7 @@ class GaussianDiffusion:
             indices = tqdm(indices)
 
         if my_kwargs['sim_guided']:
-            assert my_kwargs['sim_type'] in ['CIS', 'waveguide']
+            assert my_kwargs['sim_type'] in ['CIS', 'waveguide', 'pbs']
             simulationlabel = my_kwargs['sim_type'] + '_sim'
             my_kwargs['simulation_'] = simulation_name(simulationlabel)
             print(my_kwargs['simulation_'])
