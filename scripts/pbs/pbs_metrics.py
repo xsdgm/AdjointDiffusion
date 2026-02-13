@@ -21,6 +21,10 @@ def _build_sim(struct, pol, fcen, fwidth, resolution=21):
     Nx = 64
     Ny = 64
 
+    # Output waveguide parameters
+    y_offset = 0.8
+    wg_width = 0.5
+
     parity = mp.ODD_Z if pol == "TE" else mp.EVEN_Z
     src = mp.GaussianSource(frequency=fcen, fwidth=fwidth)
     sources = [
@@ -44,13 +48,13 @@ def _build_sim(struct, pol, fcen, fwidth, resolution=21):
     geometry = [
         mp.Block(
             center=mp.Vector3(x=-Sx / 4), material=Si, size=mp.Vector3(Sx / 2, 1, 0)
-        ),
+        ), # Input waveguide
         mp.Block(
-            center=mp.Vector3(y=Sy / 4), material=Si, size=mp.Vector3(1, Sy / 2, 0)
-        ),
+            center=mp.Vector3(x=Sx / 4, y=y_offset), material=Si, size=mp.Vector3(Sx / 2, wg_width, 0)
+        ), # Output waveguide TE (top)
         mp.Block(
-            center=mp.Vector3(y=-Sy / 4), material=Si, size=mp.Vector3(1, Sy / 2, 0)
-        ),
+            center=mp.Vector3(x=Sx / 4, y=-y_offset), material=Si, size=mp.Vector3(Sx / 2, wg_width, 0)
+        ), # Output waveguide TM (bottom)
         mp.Block(
             center=design_region.center, size=design_region.size, material=design_variables
         ),
@@ -69,40 +73,34 @@ def _build_sim(struct, pol, fcen, fwidth, resolution=21):
     return sim
 
 
-def _run_flux(sim, fcen, df, nf):
+def _run_flux(sim, fcen, df, nf, pol):
+    target_y = 0.8 if pol == "TE" else -0.8
+    
     source_flux = sim.add_flux(
         fcen,
         df,
         nf,
         mp.FluxRegion(center=mp.Vector3(-2.5, 0, 0), size=mp.Vector3(y=2)),
     )
-    top_flux = sim.add_flux(
+    front_flux = sim.add_flux(
         fcen,
         df,
         nf,
-        mp.FluxRegion(center=mp.Vector3(0, 2.5, 0), size=mp.Vector3(x=2)),
-    )
-    bottom_flux = sim.add_flux(
-        fcen,
-        df,
-        nf,
-        mp.FluxRegion(center=mp.Vector3(0, -2.5, 0), size=mp.Vector3(x=2)),
+        mp.FluxRegion(center=mp.Vector3(2.5, target_y, 0), size=mp.Vector3(y=1.0)),
     )
 
     sim.run(until_after_sources=mp.stop_when_fields_decayed(50, mp.Ez, mp.Vector3(), 1e-7))
 
     src = np.array(mp.get_fluxes(source_flux))
-    top = np.array(mp.get_fluxes(top_flux))
-    bottom = np.array(mp.get_fluxes(bottom_flux))
+    front = np.array(mp.get_fluxes(front_flux))
     freqs = np.array(mp.get_flux_freqs(source_flux))
 
     sim.reset_meep()
 
     src = np.abs(src)
-    top = np.abs(top)
-    bottom = np.abs(bottom)
+    front = np.abs(front)
 
-    return freqs, src, top, bottom
+    return freqs, src, front
 
 
 def evaluate_pbs_metrics(
@@ -125,29 +123,23 @@ def evaluate_pbs_metrics(
     df = fmax - fmin
 
     sim_te = _build_sim(struct, "TE", fcen, df)
-    freqs, src_te, top_te, bottom_te = _run_flux(sim_te, fcen, df, nf)
+    freqs, src_te, front_te = _run_flux(sim_te, fcen, df, nf, "TE")
 
     sim_tm = _build_sim(struct, "TM", fcen, df)
-    _, src_tm, top_tm, bottom_tm = _run_flux(sim_tm, fcen, df, nf)
+    _, src_tm, front_tm = _run_flux(sim_tm, fcen, df, nf, "TM")
 
     lam = 1.0 / freqs
 
     def _safe_div(a, b):
         return a / (b + 1e-12)
 
-    t_top_te = _safe_div(top_te, src_te)
-    t_bottom_te = _safe_div(bottom_te, src_te)
+    t_front_te = _safe_div(front_te, src_te)
+    t_front_tm = _safe_div(front_tm, src_tm)
 
-    t_top_tm = _safe_div(top_tm, src_tm)
-    t_bottom_tm = _safe_div(bottom_tm, src_tm)
+    il_front_te = -10 * np.log10(np.clip(t_front_te, 1e-12, None))
+    il_front_tm = -10 * np.log10(np.clip(t_front_tm, 1e-12, None))
 
-    il_top_te = -10 * np.log10(np.clip(t_top_te, 1e-12, None))
-    il_bottom_tm = -10 * np.log10(np.clip(t_bottom_tm, 1e-12, None))
-
-    xt_te = 10 * np.log10(np.clip(t_bottom_te / (t_top_te + 1e-12), 1e-12, None))
-    xt_tm = 10 * np.log10(np.clip(t_top_tm / (t_bottom_tm + 1e-12), 1e-12, None))
-
-    bw_mask = (il_top_te <= 3.0) & (il_bottom_tm <= 3.0) & (xt_te <= -10.0) & (xt_tm <= -10.0)
+    bw_mask = (il_front_te <= 3.0) & (il_front_tm <= 3.0)
     if np.any(bw_mask):
         bw_lam = lam[bw_mask]
         bw = float(bw_lam.max() - bw_lam.min())
@@ -158,20 +150,14 @@ def evaluate_pbs_metrics(
         "npz_path": str(npz_path),
         "sample_index": sample_index,
         "lambda_um": lam.tolist(),
-        "T_top_TE": t_top_te.tolist(),
-        "T_bottom_TE": t_bottom_te.tolist(),
-        "T_top_TM": t_top_tm.tolist(),
-        "T_bottom_TM": t_bottom_tm.tolist(),
-        "IL_top_TE_dB": il_top_te.tolist(),
-        "IL_bottom_TM_dB": il_bottom_tm.tolist(),
-        "XT_TE_dB": xt_te.tolist(),
-        "XT_TM_dB": xt_tm.tolist(),
+        "T_front_TE": t_front_te.tolist(),
+        "T_front_TM": t_front_tm.tolist(),
+        "IL_front_TE_dB": il_front_te.tolist(),
+        "IL_front_TM_dB": il_front_tm.tolist(),
         "bandwidth_um": bw,
         "bandwidth_criteria": {
-            "IL_top_TE_dB<=3": True,
-            "IL_bottom_TM_dB<=3": True,
-            "XT_TE_dB<=-10": True,
-            "XT_TM_dB<=-10": True,
+            "IL_front_TE_dB<=3": True,
+            "IL_front_TM_dB<=3": True,
         },
     }
 
@@ -184,26 +170,18 @@ def evaluate_pbs_metrics(
 
     header = [
         "lambda_um",
-        "T_top_TE",
-        "T_bottom_TE",
-        "T_top_TM",
-        "T_bottom_TM",
-        "IL_top_TE_dB",
-        "IL_bottom_TM_dB",
-        "XT_TE_dB",
-        "XT_TM_dB",
+        "T_front_TE",
+        "T_front_TM",
+        "IL_front_TE_dB",
+        "IL_front_TM_dB",
     ]
     data = np.column_stack(
         [
             lam,
-            t_top_te,
-            t_bottom_te,
-            t_top_tm,
-            t_bottom_tm,
-            il_top_te,
-            il_bottom_tm,
-            xt_te,
-            xt_tm,
+            t_front_te,
+            t_front_tm,
+            il_front_te,
+            il_front_tm,
         ]
     )
     np.savetxt(out_csv, data, delimiter=",", header=",".join(header), comments="")
@@ -213,9 +191,9 @@ def evaluate_pbs_metrics(
 
 if __name__ == "__main__":
     evaluate_pbs_metrics(
-        npz_path="logs/sim-guided/top_tsr=100_class=0_eta=1/samples_1x64x64x1.npz",
-        out_json="logs/sim-guided/top_tsr=100_class=0_eta=1/pbs_metrics.json",
-        out_csv="logs/sim-guided/top_tsr=100_class=0_eta=1/pbs_metrics.csv",
+        npz_path="logs/sim-guided/pbs_tsr=100_class=0_eta=1/samples_1x64x64x1.npz",
+        out_json="logs/sim-guided/pbs_tsr=100_class=0_eta=1/pbs_metrics.json",
+        out_csv="logs/sim-guided/pbs_tsr=100_class=0_eta=1/pbs_metrics.csv",
         sample_index=0,
         lam_min=1.50,
         lam_max=1.60,

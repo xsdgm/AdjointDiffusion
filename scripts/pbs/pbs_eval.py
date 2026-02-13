@@ -32,7 +32,6 @@ def run_pbs_eval(npz_path: str, out_path: str, sample_index: int = 0) -> None:
 
     Nx = 64
     Ny = 64
-
     cross_weight = 0.5
 
     def _safe_reset():
@@ -41,8 +40,12 @@ def run_pbs_eval(npz_path: str, out_path: str, sample_index: int = 0) -> None:
         except Exception:
             pass
 
-    def _run_pol(pol: str, prefer_dir: str):
+    def _run_pol(pol: str):
         _safe_reset()
+        
+        y_offset = 0.8
+        wg_width = 0.5
+        
         parity = mp.ODD_Z if pol == "TE" else mp.EVEN_Z
         src = mp.GaussianSource(frequency=fcen, fwidth=fwidth)
         source = [
@@ -70,10 +73,10 @@ def run_pbs_eval(npz_path: str, out_path: str, sample_index: int = 0) -> None:
                 center=mp.Vector3(x=-Sx / 4), material=Si, size=mp.Vector3(Sx / 2, 1, 0)
             ),
             mp.Block(
-                center=mp.Vector3(y=Sy / 4), material=Si, size=mp.Vector3(1, Sy / 2, 0)
+                center=mp.Vector3(x=Sx / 4, y=y_offset), material=Si, size=mp.Vector3(Sx / 2, wg_width, 0)
             ),
             mp.Block(
-                center=mp.Vector3(y=-Sy / 4), material=Si, size=mp.Vector3(1, Sy / 2, 0)
+                center=mp.Vector3(x=Sx / 4, y=-y_offset), material=Si, size=mp.Vector3(Sx / 2, wg_width, 0)
             ),
             mp.Block(
                 center=design_region.center, size=design_region.size, material=design_variables
@@ -98,32 +101,29 @@ def run_pbs_eval(npz_path: str, out_path: str, sample_index: int = 0) -> None:
         )
         port_top = mpa.EigenmodeCoefficient(
             sim,
-            mp.Volume(center=mp.Vector3(0, 2.5, 0), size=mp.Vector3(x=2)),
+            mp.Volume(center=mp.Vector3(2.5, y_offset, 0), size=mp.Vector3(y=1.0)),
             mode=1,
             eig_parity=parity,
         )
         port_bottom = mpa.EigenmodeCoefficient(
             sim,
-            mp.Volume(center=mp.Vector3(0, -2.5, 0), size=mp.Vector3(x=2)),
+            mp.Volume(center=mp.Vector3(2.5, -y_offset, 0), size=mp.Vector3(y=1.0)),
             mode=1,
             eig_parity=parity,
-            forward=False,
         )
 
-        ob_list = [port_source, port_top, port_bottom]
-
-        def J(source_coef, top_coef, bottom_coef):
+        def J_top(source_coef, top_coef, bottom_coef):
             denom = source_coef + 1e-12
-            top_ratio = npa.abs(top_coef / denom) ** 2
-            bottom_ratio = npa.abs(bottom_coef / denom) ** 2
-            if prefer_dir == "top":
-                return top_ratio - cross_weight * bottom_ratio
-            return bottom_ratio - cross_weight * top_ratio
+            return npa.abs(top_coef / denom) ** 2
+
+        def J_bottom(source_coef, top_coef, bottom_coef):
+            denom = source_coef + 1e-12
+            return npa.abs(bottom_coef / denom) ** 2
 
         opt = mpa.OptimizationProblem(
             simulation=sim,
-            objective_functions=J,
-            objective_arguments=ob_list,
+            objective_functions=[J_top, J_bottom],
+            objective_arguments=[port_source, port_top, port_bottom],
             design_regions=[design_region],
             fcen=fcen,
             df=0,
@@ -133,21 +133,48 @@ def run_pbs_eval(npz_path: str, out_path: str, sample_index: int = 0) -> None:
         flattened_array = struct.flatten()
         opt.update_design([flattened_array])
         fom, g = opt([flattened_array])
-        return float(fom[0]), g
+        fom_top = float(np.asarray(fom[0]).item())
+        fom_bottom = float(np.asarray(fom[1]).item())
+        return fom_top, fom_bottom, g
 
-    fom_te, g_te = _run_pol("TE", "top")
-    fom_tm, g_tm = _run_pol("TM", "bottom")
+    fom_te_top, fom_te_bottom, g_te = _run_pol("TE")
+    fom_tm_top, fom_tm_bottom, g_tm = _run_pol("TM")
+
+    fom_pbs = (fom_te_top - cross_weight * fom_te_bottom) + (fom_tm_bottom - cross_weight * fom_tm_top)
+
+    def _grad_stats(grad):
+        try:
+            return float(np.min(grad)), float(np.max(grad))
+        except Exception:
+            return None, None
+
+    def _split_grad(grad, idx):
+        if isinstance(grad, (list, tuple)) and len(grad) > idx:
+            return grad[idx]
+        return None
+
+    te_top_min, te_top_max = _grad_stats(_split_grad(g_te, 0))
+    te_bottom_min, te_bottom_max = _grad_stats(_split_grad(g_te, 1))
+    tm_top_min, tm_top_max = _grad_stats(_split_grad(g_tm, 0))
+    tm_bottom_min, tm_bottom_max = _grad_stats(_split_grad(g_tm, 1))
 
     results = {
         "npz_path": str(npz_path),
         "sample_index": sample_index,
-        "fom_te": float(fom_te),
-        "fom_tm": float(fom_tm),
-        "fom_total": float(fom_te + fom_tm),
-        "grad_te_min": float(g_te.min()),
-        "grad_te_max": float(g_te.max()),
-        "grad_tm_min": float(g_tm.min()),
-        "grad_tm_max": float(g_tm.max()),
+        "fom_te_top": float(fom_te_top),
+        "fom_te_bottom": float(fom_te_bottom),
+        "fom_tm_top": float(fom_tm_top),
+        "fom_tm_bottom": float(fom_tm_bottom),
+        "fom_pbs": float(fom_pbs),
+        "cross_weight": float(cross_weight),
+        "grad_te_top_min": te_top_min,
+        "grad_te_top_max": te_top_max,
+        "grad_te_bottom_min": te_bottom_min,
+        "grad_te_bottom_max": te_bottom_max,
+        "grad_tm_top_min": tm_top_min,
+        "grad_tm_top_max": tm_top_max,
+        "grad_tm_bottom_min": tm_bottom_min,
+        "grad_tm_bottom_max": tm_bottom_max,
     }
 
     out_path = Path(out_path)
@@ -158,7 +185,7 @@ def run_pbs_eval(npz_path: str, out_path: str, sample_index: int = 0) -> None:
 
 if __name__ == "__main__":
     run_pbs_eval(
-        npz_path="logs/sim-guided/top_tsr=100_class=0_eta=1/samples_1x64x64x1.npz",
-        out_path="logs/sim-guided/top_tsr=100_class=0_eta=1/pbs_eval.json",
+        npz_path="logs/sim-guided/pbs_tsr=100_class=0_eta=1/samples_1x64x64x1.npz",
+        out_path="logs/sim-guided/pbs_tsr=100_class=0_eta=1/pbs_eval.json",
         sample_index=0,
     )

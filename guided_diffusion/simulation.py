@@ -489,7 +489,9 @@ def pbs_sim(struct_np, t, exp_name, prop_dir='top',
     Nx = 64
     Ny = 64
 
-    cross_weight = 0.5
+    # Output waveguide parameters
+    y_offset = 0.8
+    wg_width = 0.5
 
     def _safe_reset():
         try:
@@ -497,7 +499,13 @@ def pbs_sim(struct_np, t, exp_name, prop_dir='top',
         except Exception:
             pass
 
-    def _run_pol(pol, prefer_dir):
+    allowed_props = {"top", "bottom", "front", "pbs"}
+    if prop_dir not in allowed_props:
+        raise ValueError(f"prop_dir must be one of {sorted(allowed_props)}")
+
+    cross_weight = 0.5
+
+    def _run_pol(pol):
         _safe_reset()
         parity = mp.ODD_Z if pol == "TE" else mp.EVEN_Z
         src = mp.GaussianSource(frequency=fcen, fwidth=fwidth)
@@ -524,13 +532,13 @@ def pbs_sim(struct_np, t, exp_name, prop_dir='top',
         geometry = [
             mp.Block(
                 center=mp.Vector3(x=-Sx / 4), material=Si, size=mp.Vector3(Sx / 2, 1, 0)
-            ),  # horizontal waveguide: left (origin)
+            ),  # horizontal waveguide: left (input)
             mp.Block(
-                center=mp.Vector3(y=Sy / 4), material=Si, size=mp.Vector3(1, Sy / 2, 0)
-            ),  # vertical waveguide: top
+                center=mp.Vector3(x=Sx / 4, y=y_offset), material=Si, size=mp.Vector3(Sx / 2, wg_width, 0)
+            ),  # horizontal waveguide: right top (output TE)
             mp.Block(
-                center=mp.Vector3(y=-Sy / 4), material=Si, size=mp.Vector3(1, Sy / 2, 0)
-            ),  # vertical waveguide: bottom
+                center=mp.Vector3(x=Sx / 4, y=-y_offset), material=Si, size=mp.Vector3(Sx / 2, wg_width, 0)
+            ),  # horizontal waveguide: right bottom (output TM)
             mp.Block(
                 center=design_region.center, size=design_region.size, material=design_variables
             ),  # design region
@@ -554,27 +562,42 @@ def pbs_sim(struct_np, t, exp_name, prop_dir='top',
         )
         port_top = mpa.EigenmodeCoefficient(
             sim,
-            mp.Volume(center=mp.Vector3(0, 2.5, 0), size=mp.Vector3(x=2)),
+            mp.Volume(center=mp.Vector3(2.5, y_offset, 0), size=mp.Vector3(y=1.0)),
             mode=1,
             eig_parity=parity,
         )
         port_bottom = mpa.EigenmodeCoefficient(
             sim,
-            mp.Volume(center=mp.Vector3(0, -2.5, 0), size=mp.Vector3(x=2)),
+            mp.Volume(center=mp.Vector3(2.5, -y_offset, 0), size=mp.Vector3(y=1.0)),
             mode=1,
             eig_parity=parity,
-            forward=False,
         )
 
-        ob_list = [port_source, port_top, port_bottom]
+        if prop_dir == "top":
+            ob_list = [port_source, port_top]
 
-        def J(source_coef, top_coef, bottom_coef):
-            denom = source_coef + 1e-12
-            top_ratio = npa.abs(top_coef / denom) ** 2
-            bottom_ratio = npa.abs(bottom_coef / denom) ** 2
-            if prefer_dir == "top":
-                return top_ratio - cross_weight * bottom_ratio
-            return bottom_ratio - cross_weight * top_ratio
+            def J(source_coef, top_coef):
+                denom = source_coef + 1e-12
+                return npa.abs(top_coef / denom) ** 2
+
+        elif prop_dir == "bottom":
+            ob_list = [port_source, port_bottom]
+
+            def J(source_coef, bottom_coef):
+                denom = source_coef + 1e-12
+                return npa.abs(bottom_coef / denom) ** 2
+
+        else:
+            # PBS objective: TE -> top, TM -> bottom, suppress cross coupling.
+            desired_port = port_top if pol == "TE" else port_bottom
+            cross_port = port_bottom if pol == "TE" else port_top
+            ob_list = [port_source, desired_port, cross_port]
+
+            def J(source_coef, desired_coef, cross_coef):
+                denom = source_coef + 1e-12
+                desired = npa.abs(desired_coef / denom) ** 2
+                cross = npa.abs(cross_coef / denom) ** 2
+                return desired - cross_weight * cross
 
         opt = mpa.OptimizationProblem(
             simulation=sim,
@@ -592,9 +615,9 @@ def pbs_sim(struct_np, t, exp_name, prop_dir='top',
         return fom[0], g
 
     _safe_reset()
-    fom_te, g_te = _run_pol("TE", "top")
+    fom_te, g_te = _run_pol("TE")
     _safe_reset()
-    fom_tm, g_tm = _run_pol("TM", "bottom")
+    fom_tm, g_tm = _run_pol("TM")
 
     fom = fom_te + fom_tm
     g = g_te + g_tm

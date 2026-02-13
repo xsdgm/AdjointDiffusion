@@ -51,15 +51,18 @@ def run_pbs_field(npz_path: str, out_dir: str, sample_index: int = 0, pol: str =
     design_variables.update_weights(struct.flatten())
     design_region = mp.Volume(center=mp.Vector3(), size=mp.Vector3(3, 3, 0))
 
+    y_offset = 0.8
+    wg_width = 0.5
+
     geometry = [
         mp.Block(
             center=mp.Vector3(x=-Sx / 4), material=Si, size=mp.Vector3(Sx / 2, 1, 0)
         ),
         mp.Block(
-            center=mp.Vector3(y=Sy / 4), material=Si, size=mp.Vector3(1, Sy / 2, 0)
+            center=mp.Vector3(x=Sx / 4, y=y_offset), material=Si, size=mp.Vector3(Sx / 2, wg_width, 0)
         ),
         mp.Block(
-            center=mp.Vector3(y=-Sy / 4), material=Si, size=mp.Vector3(1, Sy / 2, 0)
+            center=mp.Vector3(x=Sx / 4, y=-y_offset), material=Si, size=mp.Vector3(Sx / 2, wg_width, 0)
         ),
         mp.Block(
             center=design_region.center, size=design_region.size, material=design_variables
@@ -100,13 +103,13 @@ def run_pbs_field(npz_path: str, out_dir: str, sample_index: int = 0, pol: str =
 
 if __name__ == "__main__":
     run_pbs_field(
-        npz_path="results/pbs/samples_1x64x64x1_bin.npz",
+        npz_path="logs/sim-guided/pbs_tsr=100_class=0_eta=1/samples_1x64x64x1.npz",
         out_dir="results/pbs/fields",
         sample_index=0,
         pol="TE",
     )
     run_pbs_field(
-        npz_path="results/pbs/samples_1x64x64x1_bin.npz",
+        npz_path="logs/sim-guided/pbs_tsr=100_class=0_eta=1/samples_1x64x64x1.npz",
         out_dir="results/pbs/fields",
         sample_index=0,
         pol="TM",

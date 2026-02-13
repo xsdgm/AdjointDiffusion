@@ -1,8 +1,11 @@
 gpu_id=0
-prop="top"
-CONDA_ENV=${CONDA_ENV:-adjoint_diffusion}
+prop="pbs"
+CONDA_ENV=${CONDA_ENV:-pbs_chip_env}
 MODEL_PATH=${MODEL_PATH:-/home/kylin/AdjointDiffusion/ema_0.9999_025000.pt}
 LOG_PATH=${LOG_PATH:-/home/kylin/AdjointDiffusion/logs}
+ENV_PREFIX="$(conda info --base)/envs/${CONDA_ENV}"
+LD_LIBRARY_PATH="${ENV_PREFIX}/lib:${LD_LIBRARY_PATH}"
+WANDB_MODE=${WANDB_MODE:-offline}
 
 for manual_class_id in 0
 do
@@ -18,7 +21,7 @@ do
             SAMPLE_FLAGS="--batch_size 1 --num_samples 1 --timestep_respacing ${tsr} --num_classes 3 --manual_class_id ${manual_class_id} --gpu_id ${gpu_id} --save_img False"
             SIM_FLAGS="--sim_guided True --sim_type pbs  --use_normed_grad True --use_adjgrad_norm False  --eta ${eta} --prop_dir ${prop} --save_inter True --interval 1"
             echo -e "\n\n\n\n############################ Sampling with eta = ${eta} ##############################\n"
-            conda run -n ${CONDA_ENV} python3 image_sample.py $MODEL_FLAGS $DIFF_FLAGS $DIR_FLAGS $SAMPLE_FLAGS $SIM_FLAGS
+            conda run -n ${CONDA_ENV} env LD_LIBRARY_PATH="${LD_LIBRARY_PATH}" WANDB_MODE="${WANDB_MODE}" python3 image_sample.py $MODEL_FLAGS $DIFF_FLAGS $DIR_FLAGS $SAMPLE_FLAGS $SIM_FLAGS
         done
     done
 done
