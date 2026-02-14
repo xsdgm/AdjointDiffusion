@@ -1,9 +1,14 @@
 import json
 from pathlib import Path
 
+import matplotlib.pyplot as plt
 import meep as mp
 import numpy as np
 
+
+# ---------------------------------------------------------------------------
+# Simulation helpers
+# ---------------------------------------------------------------------------
 
 def _build_sim(struct, pol, fcen, fwidth, resolution=21):
     Si = mp.Medium(index=3.4)
@@ -73,40 +78,112 @@ def _build_sim(struct, pol, fcen, fwidth, resolution=21):
     return sim
 
 
-def _run_flux(sim, fcen, df, nf, pol):
-    target_y = 0.8 if pol == "TE" else -0.8
-    
+def _run_flux(sim, fcen, df, nf):
     source_flux = sim.add_flux(
         fcen,
         df,
         nf,
         mp.FluxRegion(center=mp.Vector3(-2.5, 0, 0), size=mp.Vector3(y=2)),
     )
-    front_flux = sim.add_flux(
+    # Output waveguide TE (top), y=0.8
+    top_flux = sim.add_flux(
         fcen,
         df,
         nf,
-        mp.FluxRegion(center=mp.Vector3(2.5, target_y, 0), size=mp.Vector3(y=1.0)),
+        mp.FluxRegion(center=mp.Vector3(2.5, 0.8, 0), size=mp.Vector3(y=1.0)),
+    )
+    # Output waveguide TM (bottom), y=-0.8
+    bottom_flux = sim.add_flux(
+        fcen,
+        df,
+        nf,
+        mp.FluxRegion(center=mp.Vector3(2.5, -0.8, 0), size=mp.Vector3(y=1.0)),
     )
 
     sim.run(until_after_sources=mp.stop_when_fields_decayed(50, mp.Ez, mp.Vector3(), 1e-7))
 
     src = np.array(mp.get_fluxes(source_flux))
-    front = np.array(mp.get_fluxes(front_flux))
+    top = np.array(mp.get_fluxes(top_flux))
+    bottom = np.array(mp.get_fluxes(bottom_flux))
     freqs = np.array(mp.get_flux_freqs(source_flux))
 
     sim.reset_meep()
 
     src = np.abs(src)
-    front = np.abs(front)
+    top = np.abs(top)
+    bottom = np.abs(bottom)
 
-    return freqs, src, front
+    return freqs, src, top, bottom
 
+
+# ---------------------------------------------------------------------------
+# Plotting
+# ---------------------------------------------------------------------------
+
+def plot_pbs_metrics(csv_path: str, out_dir: str) -> None:
+    """Read metrics CSV and generate transmission / IL / ER plots."""
+    data = np.genfromtxt(csv_path, delimiter=",", names=True)
+
+    lam = data["lambda_um"]
+    t_front_te = data["T_front_TE"]
+    t_front_tm = data["T_front_TM"]
+    il_front_te = data["IL_front_TE_dB"]
+    il_front_tm = data["IL_front_TM_dB"]
+    er_te = data["ER_TE_dB"]
+    er_tm = data["ER_TM_dB"]
+
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    # Transmission spectra
+    plt.figure(figsize=(4.5, 3.2))
+    plt.plot(lam, t_front_te, label="T_front_TE")
+    plt.plot(lam, t_front_tm, label="T_front_TM")
+    plt.xlabel("Wavelength (um)")
+    plt.ylabel("Transmission")
+    plt.legend(frameon=False, fontsize=8)
+    plt.tight_layout()
+    plt.savefig(out_dir / "pbs_transmission.png", dpi=300)
+    plt.close()
+
+    # Insertion loss
+    plt.figure(figsize=(4.5, 3.2))
+    plt.plot(lam, il_front_te, label="IL_front_TE (dB)")
+    plt.plot(lam, il_front_tm, label="IL_front_TM (dB)")
+    plt.axhline(3.0, color="gray", linestyle="--", linewidth=1)
+    plt.xlabel("Wavelength (um)")
+    plt.ylabel("Insertion Loss (dB)")
+    plt.legend(frameon=False, fontsize=8)
+    plt.tight_layout()
+    plt.savefig(out_dir / "pbs_insertion_loss.png", dpi=300)
+    plt.close()
+
+    # Extinction ratio
+    plt.figure(figsize=(4.5, 3.2))
+    plt.plot(lam, er_te, label="ER_TE (dB)")
+    plt.plot(lam, er_tm, label="ER_TM (dB)")
+    plt.axhline(20.0, color="gray", linestyle="--", linewidth=1)
+    plt.xlabel("Wavelength (um)")
+    plt.ylabel("Extinction Ratio (dB)")
+    plt.legend(frameon=False, fontsize=8)
+    plt.tight_layout()
+    plt.savefig(out_dir / "pbs_extinction_ratio.png", dpi=300)
+    plt.close()
+
+    print(str(out_dir / "pbs_transmission.png"))
+    print(str(out_dir / "pbs_insertion_loss.png"))
+    print(str(out_dir / "pbs_extinction_ratio.png"))
+
+
+# ---------------------------------------------------------------------------
+# Metrics evaluation (runs simulation + saves data + plots)
+# ---------------------------------------------------------------------------
 
 def evaluate_pbs_metrics(
     npz_path: str,
     out_json: str,
     out_csv: str,
+    out_fig_dir: str,
     sample_index: int = 0,
     lam_min: float = 1.50,
     lam_max: float = 1.60,
@@ -123,21 +200,32 @@ def evaluate_pbs_metrics(
     df = fmax - fmin
 
     sim_te = _build_sim(struct, "TE", fcen, df)
-    freqs, src_te, front_te = _run_flux(sim_te, fcen, df, nf, "TE")
+    freqs, src_te, top_te, bottom_te = _run_flux(sim_te, fcen, df, nf)
 
     sim_tm = _build_sim(struct, "TM", fcen, df)
-    _, src_tm, front_tm = _run_flux(sim_tm, fcen, df, nf, "TM")
+    _, src_tm, top_tm, bottom_tm = _run_flux(sim_tm, fcen, df, nf)
 
     lam = 1.0 / freqs
 
     def _safe_div(a, b):
         return a / (b + 1e-12)
 
-    t_front_te = _safe_div(front_te, src_te)
-    t_front_tm = _safe_div(front_tm, src_tm)
+    # For TE input: Signal is Top, Crosstalk is Bottom
+    t_front_te = _safe_div(top_te, src_te)
+    xt_front_te = _safe_div(bottom_te, src_te) # Crosstalk
+
+    # For TM input: Signal is Bottom, Crosstalk is Top
+    t_front_tm = _safe_div(bottom_tm, src_tm)
+    xt_front_tm = _safe_div(top_tm, src_tm) # Crosstalk
 
     il_front_te = -10 * np.log10(np.clip(t_front_te, 1e-12, None))
     il_front_tm = -10 * np.log10(np.clip(t_front_tm, 1e-12, None))
+
+    er_te = 10 * np.log10(np.clip( _safe_div(t_front_te, xt_front_te), 1e-12, None))
+    er_tm = 10 * np.log10(np.clip( _safe_div(t_front_tm, xt_front_tm), 1e-12, None))
+
+    min_er_te = float(np.min(er_te))
+    min_er_tm = float(np.min(er_tm))
 
     bw_mask = (il_front_te <= 3.0) & (il_front_tm <= 3.0)
     if np.any(bw_mask):
@@ -154,6 +242,10 @@ def evaluate_pbs_metrics(
         "T_front_TM": t_front_tm.tolist(),
         "IL_front_TE_dB": il_front_te.tolist(),
         "IL_front_TM_dB": il_front_tm.tolist(),
+        "ER_TE_dB": er_te.tolist(),
+        "ER_TM_dB": er_tm.tolist(),
+        "min_ER_TE_dB": min_er_te,
+        "min_ER_TM_dB": min_er_tm,
         "bandwidth_um": bw,
         "bandwidth_criteria": {
             "IL_front_TE_dB<=3": True,
@@ -174,6 +266,8 @@ def evaluate_pbs_metrics(
         "T_front_TM",
         "IL_front_TE_dB",
         "IL_front_TM_dB",
+        "ER_TE_dB",
+        "ER_TM_dB",
     ]
     data = np.column_stack(
         [
@@ -182,18 +276,31 @@ def evaluate_pbs_metrics(
             t_front_tm,
             il_front_te,
             il_front_tm,
+            er_te,
+            er_tm,
         ]
     )
     np.savetxt(out_csv, data, delimiter=",", header=",".join(header), comments="")
 
-    print(json.dumps({"bandwidth_um": bw, "out_json": str(out_json), "out_csv": str(out_csv)}, indent=2))
+    print(json.dumps({
+        "bandwidth_um": bw,
+        "min_ER_TE_dB": min_er_te,
+        "min_ER_TM_dB": min_er_tm,
+        "out_json": str(out_json),
+        "out_csv": str(out_csv)
+    }, indent=2))
+
+    # --- 仿真完成后自动绘图 ---
+    plot_pbs_metrics(csv_path=str(out_csv), out_dir=out_fig_dir)
 
 
+# ---------------------------------------------------------------------------
 if __name__ == "__main__":
     evaluate_pbs_metrics(
-        npz_path="logs/sim-guided/pbs_tsr=100_class=0_eta=1/samples_1x64x64x1.npz",
-        out_json="logs/sim-guided/pbs_tsr=100_class=0_eta=1/pbs_metrics.json",
-        out_csv="logs/sim-guided/pbs_tsr=100_class=0_eta=1/pbs_metrics.csv",
+        npz_path="results/pbs/structure_polished/polished_structure.npz",
+        out_json="results/pbs/pbs_metrics_polished.json",
+        out_csv="results/pbs/pbs_metrics_polished.csv",
+        out_fig_dir="results/pbs/figures_polished",
         sample_index=0,
         lam_min=1.50,
         lam_max=1.60,

@@ -79,19 +79,40 @@ def run_pbs_field(npz_path: str, out_dir: str, sample_index: int = 0, pol: str =
         resolution=resolution,
     )
 
-    sim.run(until_after_sources=mp.stop_when_fields_decayed(50, mp.Ez, mp.Vector3(), 1e-7))
+    dft_components = [mp.Ez] if pol == "TE" else [mp.Ex, mp.Ey]
+    dft_obj = sim.add_dft_fields(
+        dft_components, fcen, 0, 1, center=mp.Vector3(), size=cell_size
+    )
 
-    ez = sim.get_array(center=mp.Vector3(), size=cell_size, component=mp.Ez)
+    decay_component = mp.Ez if pol == "TE" else mp.Ex
+    sim.run(
+        until_after_sources=mp.stop_when_fields_decayed(
+            50, decay_component, mp.Vector3(), 1e-7
+        )
+    )
+
+    if pol == "TE":
+        ez = sim.get_dft_array(dft_obj, mp.Ez, 0)
+        field = np.abs(ez)
+        field_label = "|Ez|"
+        cmap = "inferno"
+    else:
+        ex = sim.get_dft_array(dft_obj, mp.Ex, 0)
+        ey = sim.get_dft_array(dft_obj, mp.Ey, 0)
+        # TM has in-plane electric field; plot magnitude for a stable view.
+        field = np.sqrt(np.abs(ex) ** 2 + np.abs(ey) ** 2)
+        field_label = "|E|"
+        cmap = "inferno"
 
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     npy_path = out_dir / f"pbs_field_{pol}.npy"
     png_path = out_dir / f"pbs_field_{pol}.png"
-    np.save(npy_path, ez)
+    np.save(npy_path, field)
 
     plt.figure(figsize=(4.2, 4.2))
-    plt.imshow(ez.T, cmap="RdBu", origin="lower")
-    plt.colorbar(label="Ez")
+    plt.imshow(field.T, cmap=cmap, origin="lower")
+    plt.colorbar(label=field_label)
     plt.title(f"PBS Field ({pol})")
     plt.tight_layout()
     plt.savefig(png_path, dpi=300)
@@ -103,14 +124,15 @@ def run_pbs_field(npz_path: str, out_dir: str, sample_index: int = 0, pol: str =
 
 if __name__ == "__main__":
     run_pbs_field(
-        npz_path="logs/sim-guided/pbs_tsr=100_class=0_eta=1/samples_1x64x64x1.npz",
-        out_dir="results/pbs/fields",
+        npz_path="results/pbs/structure_polished/polished_structure.npz",
+        out_dir="results/pbs/fields_polished",
         sample_index=0,
         pol="TE",
     )
     run_pbs_field(
-        npz_path="logs/sim-guided/pbs_tsr=100_class=0_eta=1/samples_1x64x64x1.npz",
-        out_dir="results/pbs/fields",
+        npz_path="results/pbs/structure_polished/polished_structure.npz",
+        out_dir="results/pbs/fields_polished",
         sample_index=0,
         pol="TM",
     )
+

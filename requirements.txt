@@ -9,5 +9,6 @@ wandb>=0.16
 nlopt>=2.7.1
 autograd>=1.6
 scikit-image>=0.22
+gdstk>=0.9
 blobfile==2.1.1
 mpi4py==3.1.6

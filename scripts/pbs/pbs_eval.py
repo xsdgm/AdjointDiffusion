@@ -7,11 +7,24 @@ import meep.adjoint as mpa
 import numpy as np
 
 
-def run_pbs_eval(npz_path: str, out_path: str, sample_index: int = 0) -> None:
+def run_pbs_eval(
+    npz_path: str,
+    out_path: str,
+    sample_index: int = 0,
+    polished_npz_path: str | None = None,
+) -> None:
     mp.verbosity(0)
 
-    npz = np.load(npz_path)
-    struct = npz["arr_0"][sample_index, :, :, 0].astype("float32") / 255.0
+    if polished_npz_path is not None:
+        # --- 使用平滑后的结构 ---
+        npz = np.load(polished_npz_path)
+        struct = npz["arr_0"][sample_index, :, :, 0].astype("float32") / 255.0
+        struct_source = str(polished_npz_path)
+    else:
+        # --- 使用原始结构 ---
+        npz = np.load(npz_path)
+        struct = npz["arr_0"][sample_index, :, :, 0].astype("float32") / 255.0
+        struct_source = str(npz_path)
 
     Si = mp.Medium(index=3.4)
     SiO2 = mp.Medium(index=1.44)
@@ -160,6 +173,8 @@ def run_pbs_eval(npz_path: str, out_path: str, sample_index: int = 0) -> None:
 
     results = {
         "npz_path": str(npz_path),
+        "struct_source": struct_source,
+        "polished": polished_npz_path is not None,
         "sample_index": sample_index,
         "fom_te_top": float(fom_te_top),
         "fom_te_bottom": float(fom_te_bottom),
@@ -184,8 +199,17 @@ def run_pbs_eval(npz_path: str, out_path: str, sample_index: int = 0) -> None:
 
 
 if __name__ == "__main__":
+    # --- 评估原始结构 ---
     run_pbs_eval(
-        npz_path="logs/sim-guided/pbs_tsr=100_class=0_eta=1/samples_1x64x64x1.npz",
-        out_path="logs/sim-guided/pbs_tsr=100_class=0_eta=1/pbs_eval.json",
+        npz_path="logs/sim-guided/pbs_tsr=100_class=0_eta=1/samples_1x64x64x1_bin.npz",
+        out_path="results/pbs/pbs_eval.json",
         sample_index=0,
+    )
+
+    # --- 评估平滑后的结构 ---
+    run_pbs_eval(
+        npz_path="logs/sim-guided/pbs_tsr=100_class=0_eta=1/samples_1x64x64x1_bin.npz",
+        out_path="results/pbs/pbs_eval_polished.json",
+        sample_index=0,
+        polished_npz_path="results/pbs/structure_polished/polished_structure.npz",
     )
