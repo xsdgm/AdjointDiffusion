@@ -24,7 +24,7 @@ def main():
     args = create_argparser().parse_args()
     logger.configure(dir=args.log_dir)
     
-    assert args.guidance_type in ['dps', 'dds']
+    assert args.guidance_type in ['dps', 'dds', 'sac']
     my_kwargs = {
         'sim_guided': args.sim_guided,
         'eta': args.eta,
@@ -40,6 +40,16 @@ def main():
         'sim_type': args.sim_type,
         'tsr': args.tsr,
         'manual_class_id': args.manual_class_id,
+        'log_dir': args.log_dir,
+        # SAC-specific parameters
+        'sac_model_path': args.sac_model_path,
+        'sac_lr': args.sac_lr,
+        'sac_alpha_lr': args.sac_alpha_lr,
+        'sac_delta': args.sac_delta,
+        'sac_patch_size': args.sac_patch_size,
+        'sac_batch_size': args.sac_batch_size,
+        'sac_buffer_size': args.sac_buffer_size,
+        'sac_training': args.sac_training,
     }
     print("my_kwargs: ", my_kwargs)
     
@@ -153,7 +163,16 @@ def create_argparser():
         stoptime=0.0,
         use_adjgrad_norm = False,
         sim_type = 'waveguide',
-        tsr=100
+        tsr=100,
+        # SAC-specific parameters
+        sac_model_path='',
+        sac_lr=3e-4,
+        sac_alpha_lr=3e-4,
+        sac_delta=0.1,
+        sac_patch_size=8,
+        sac_batch_size=256,
+        sac_buffer_size=50000,
+        sac_training=True,
     )
     defaults.update(model_and_diffusion_defaults())
     parser = argparse.ArgumentParser()

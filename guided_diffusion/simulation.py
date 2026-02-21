@@ -622,7 +622,7 @@ def pbs_sim(struct_np, t, exp_name, prop_dir='top',
     fom = fom_te + fom_tm
     g = g_te + g_tm
 
-    if flag_last:
+    if flag_last and wandb.run is not None:
         wandb.log({"fom_te": fom_te, "fom_tm": fom_tm, "fom_pbs": fom})
 
     return fom, g

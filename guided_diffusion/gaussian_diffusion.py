@@ -29,6 +29,8 @@ from skimage.measure import label as label_
 
 
 from guided_diffusion.simulation import CIS_sim, waveguide_sim, pbs_sim
+from guided_diffusion.sac_agent import SACAgent
+from guided_diffusion.sim_env import SimEnvWrapper
 
 
 # log handler
@@ -698,8 +700,85 @@ class GaussianDiffusion:
                     'adjgrad_norm': adjgrad_norm,
                     "generated": [wandb.Image(th.squeeze(x_.detach().cpu()).numpy(), caption='step_'+str(wandb.config.tsr-t_cur)+'_fom_'+str(fom)[:5])]
                 }, step=wandb.config.tsr-t_cur)
-                
-            if t_cur % my_kwargs['interval'] == 0:
+
+            elif my_kwargs['guidance_type'] == 'sac':
+                # ---- SAC Guidance Mode ----
+                sac_agent = my_kwargs['sac_agent']
+                sim_env = my_kwargs['sim_env']
+                sac_training = my_kwargs.get('sac_training', True)
+                diffusion_step = self.num_timesteps - t_cur
+
+                # Current state: pred_xstart
+                state = out['pred_xstart'].detach().clone()  # [-1, 1]
+                state_01 = state * 0.5 + 0.5  # [0, 1]
+
+                # Get FoM AND adjoint gradient from simulator
+                fom_before, adjoint_grad = sim_env.evaluate_with_gradient(
+                    state_01.cpu().numpy(), t_cur
+                )
+                adjoint_grad_tensor = th.from_numpy(
+                    adjoint_grad.reshape(state.shape)
+                ).float().to(state.device)
+
+                # SAC selects action (using pred_xstart + adjoint gradient + timestep)
+                timestep_norm = t_cur / self.num_timesteps
+                deterministic = not sac_training
+                action = sac_agent.select_action(
+                    state, adjoint_grad_tensor, timestep_norm,
+                    deterministic=deterministic
+                )
+
+                # Apply continuous action to all patches simultaneously
+                new_pred = sac_agent.apply_action(state, action)
+
+                # Evaluate FoM after action
+                new_pred_01 = new_pred.detach() * 0.5 + 0.5
+                fom_after = sim_env.evaluate(new_pred_01.cpu().numpy(), t_cur)
+
+                reward = fom_after - fom_before
+                fom = fom_after
+
+                # Store experience and train (if in training mode)
+                if sac_training:
+                    # Get next adjoint gradient for next state
+                    _, next_adjoint_grad = sim_env.evaluate_with_gradient(
+                        new_pred_01.cpu().numpy(), t_cur
+                    )
+                    next_adjoint_grad_tensor = th.from_numpy(
+                        next_adjoint_grad.reshape(state.shape)
+                    ).float().to(state.device)
+
+                    done = (t_cur == 0)
+                    sac_agent.store_transition(
+                        state, adjoint_grad_tensor, timestep_norm,
+                        action, reward,
+                        new_pred.detach().clone(), next_adjoint_grad_tensor,
+                        timestep_norm, done
+                    )
+                    train_info = sac_agent.train_step()
+
+                # Update pred_xstart with SAC-modified version
+                out['pred_xstart'] = new_pred.clamp(-1, 1)
+                out['mean'], _, _ = self.q_posterior_mean_variance(
+                    x_start=out['pred_xstart'], x_t=x, t=t
+                )
+
+                end = time()
+                avg_critic_loss, avg_actor_loss = sac_agent.get_avg_loss()
+
+                # File-based logging
+                log_line = (f"step={diffusion_step:4d} | t={t_cur:4d} | "
+                            f"fom={fom:.6f} | reward={reward:.6f} | "
+                            f"alpha={sac_agent.alpha.item():.4f} | "
+                            f"critic_loss={avg_critic_loss:.6f} | "
+                            f"actor_loss={avg_actor_loss:.6f} | time={end-start:.2f}s")
+                print(log_line)
+                sac_log_path = my_kwargs.get('sac_log_path', '')
+                if sac_log_path:
+                    with open(sac_log_path, 'a') as f:
+                        f.write(log_line + '\n')
+
+            if my_kwargs['guidance_type'] != 'sac' and t_cur % my_kwargs['interval'] == 0:
                 hist_dir = os.path.join('figures', my_kwargs['exp_name'])
                 os.makedirs(hist_dir, exist_ok=True)
                 plt.figure()
@@ -722,117 +801,190 @@ class GaussianDiffusion:
             sample_bin_ = sample_bin
             sample_bin_[sample_bin_ > 0.5] = 1.0
             sample_bin_[sample_bin_ <= 0.5] = 0.0
-            fom, sensitivity = my_kwargs['simulation_'](
-                sample_bin_,
-                t_cur,
-                my_kwargs['exp_name'],
-                my_kwargs['prop_dir'],
-                my_kwargs['save_inter'],
-                my_kwargs['interval'],
-                flag_last=True
-            )
-            x_image = sample_bin_.reshape(64, 64, 1)
-            print('fom (final, after binarization): ', fom)
 
-            fig = plt.figure(figsize=(20,20))
-            plt.imshow(np.squeeze(np.abs(sensitivity.reshape(64, 64))))
-            plt.xlabel("x")
-            plt.ylabel("y")
-            plt.savefig("sensitivity.png")
-            cmap = plt.cm.get_cmap()
-            colormapping = plt.cm.ScalarMappable(cmap=cmap)
-            cbar = fig.colorbar(colormapping, ax=plt.gca())
-            wandb.log({"sensitivity": plt})
+            if my_kwargs['guidance_type'] == 'sac':
+                # SAC mode: final evaluation with file logging
+                sim_env = my_kwargs['sim_env']
+                fom_final = sim_env.evaluate(sample_bin_, t_cur, flag_last=True)
+                x_image = sample_bin_.reshape(64, 64, 1)
+                print('fom (final, after binarization): ', fom_final)
 
-            x_image_ = 1-x_image
+                island_deleted = delete_islands_with_size_1(x_image.copy())
+                min_feature_size, min_feature_label, labeled_array = find_minimum_feature_size(island_deleted)
+                fom_island = sim_env.evaluate(island_deleted.flatten(), t_cur, flag_last=True)
 
-            wandb.log({
-                'fom (binarized)': fom,
-                "generated_binarized": [wandb.Image(x_image_)],
-            }, step=wandb.config.tsr-t_cur)
-            
-            island_deleted = delete_islands_with_size_1(x_image.copy())
-            min_feature_size, min_feature_label, labeled_array = find_minimum_feature_size(island_deleted)
-            
-            fom_island, _ = my_kwargs['simulation_'](
-                island_deleted.flatten(),
-                t_cur,
-                my_kwargs['exp_name'],
-                my_kwargs['prop_dir'],
-                my_kwargs['save_inter'],
-                my_kwargs['interval'],
-                flag_last=True
-            )
-            
-            wandb.log({
-                'fom (binarized, island deleted1)': fom_island,
-                "generated, island deleted1": [wandb.Image(1-island_deleted)],
-            })
-            
-            array_converted_processed = delete_islands_with_size_1(1-island_deleted.copy())
-            array_original = 1 - array_converted_processed
-            min_feature_size2, min_feature_label2, labeled_array2 = find_minimum_feature_size(array_converted_processed)
-            plt2 = highlight_minimum_island(array_original, min_feature_label2, labeled_array2)
-            euler_number_original = euler_number(array_original, connectivity=1)
-            _, num_islands1 = label_(island_deleted, connectivity=1, return_num=True)
-            num_holes1 = num_islands1 - euler_number_original
+                array_converted_processed = delete_islands_with_size_1(1-island_deleted.copy())
+                array_original = 1 - array_converted_processed
+                min_feature_size2, _, _ = find_minimum_feature_size(array_converted_processed)
+                euler_number_original = euler_number(array_original, connectivity=1)
+                _, num_islands1 = label_(island_deleted, connectivity=1, return_num=True)
+                num_holes1 = num_islands1 - euler_number_original
+                euler_number_converted = euler_number(array_converted_processed, connectivity=1)
+                _, num_islands2 = label_(array_converted_processed, connectivity=1, return_num=True)
+                num_holes2 = num_islands2 - euler_number_converted
 
-            euler_number_converted = euler_number(array_converted_processed, connectivity=1)
-            _, num_islands2 = label_(array_converted_processed, connectivity=1, return_num=True)
-            num_holes2 = num_islands2 - euler_number_converted
+                fom_island2 = sim_env.evaluate(array_original.flatten(), t_cur, flag_last=True)
 
-            fom_island2, _ = my_kwargs['simulation_'](
-                array_original.flatten(),
-                t_cur,
-                my_kwargs['exp_name'],
-                my_kwargs['prop_dir'],
-                my_kwargs['save_inter'],
-                my_kwargs['interval'],
-                flag_last=True
-            )
+                np.save('final.npy', array_converted_processed)
+                print('Array saved as final.npy.')
 
-            wandb.log({
-               "highlighted, island deleted2": [wandb.Image(plt2)],
-            })
-            
-            _, min_feature_label3, labeled_array3 = find_minimum_feature_size(array_original)
-            plt3 = highlight_minimum_island(array_original, min_feature_label3, labeled_array3)
-            
-            wandb.log({
-                'fom (final, binarized and island-deleted)': fom_island2,
-                "generated_fianl": [wandb.Image(1-array_original)],
-                "highlighted, final": [wandb.Image(plt3)]
-            })
+                # Get SAC agent and log path
+                agent = my_kwargs['sac_agent']
+                log_path = my_kwargs.get('sac_log_path', '')
+                save_name = 'sac_model_final.pt'
 
-            print("array 0,0: ", array_original[0,0], ' value')
+                # Save final model
+                model_save_path = os.path.join(os.path.dirname(log_path) if log_path else '.', save_name)
+                agent.save(model_save_path)
+                print(f'Model saved to {model_save_path}')
 
-            wandb.log({
-                'mfs (original)': min_feature_size,
-                'mfs (converted)': min_feature_size2,
-                'number of islands (original)': num_islands1,
-                'number of islands (converted)': num_islands2,
-                'number of holes (original)' : num_holes1,
-                'number of holes (converted)': num_holes2,
-                'euler_number with 1 connectivity (original)': euler_number_original,
-                'euler_number with 1 connectivity (converted)': euler_number_converted,
-            })
+                # Write final results to log
+                if log_path:
+                    with open(log_path, 'a') as f:
+                        f.write(f"\n{'='*50}\n")
+                        f.write(f"=== FINAL RESULTS ===\n")
+                        f.write(f"fom (binarized): {fom_final}\n")
+                        f.write(f"fom (island deleted): {fom_island}\n")
+                        f.write(f"fom (final, binarized+island-deleted): {fom_island2}\n")
+                        f.write(f"mfs (original): {min_feature_size}\n")
+                        f.write(f"mfs (converted): {min_feature_size2}\n")
+                        f.write(f"islands (original): {num_islands1}\n")
+                        f.write(f"islands (converted): {num_islands2}\n")
+                        f.write(f"holes (original): {num_holes1}\n")
+                        f.write(f"holes (converted): {num_holes2}\n")
+                        f.write(f"euler_number (original): {euler_number_original}\n")
+                        f.write(f"euler_number (converted): {euler_number_converted}\n")
+                        f.write(f"Model saved to: {model_save_path}\n")
 
-            np.save('final.npy', array_converted_processed)
-            print('Array saved as final.npy.')
+                # Save final images
+                hist_dir = os.path.join('figures', my_kwargs['exp_name'])
+                os.makedirs(hist_dir, exist_ok=True)
+                prefix = my_kwargs['guidance_type']
+                plt.figure()
+                plt.imshow(1 - x_image.squeeze(), cmap='gray')
+                plt.title(f'Final (fom={fom_final:.4f})')
+                plt.savefig(os.path.join(hist_dir, f'{prefix}_final_binarized.png'))
+                plt.close()
 
-            if my_kwargs['sim_type'] == "CIS_sim":
-                red_list, blue_list, green_list = load_lists()
-                fred = extract_elements(red_list)
-                fgreen = extract_elements(green_list)
-                fblue = extract_elements(blue_list)
+                plt.figure()
+                plt.imshow(1 - array_original.squeeze(), cmap='gray')
+                plt.title(f'Final cleaned (fom={fom_island2:.4f})')
+                plt.savefig(os.path.join(hist_dir, f'{prefix}_final_cleaned.png'))
+                plt.close()
+
+            else:
+                # Original adjoint mode with wandb
+                fom, sensitivity = my_kwargs['simulation_'](
+                    sample_bin_,
+                    t_cur,
+                    my_kwargs['exp_name'],
+                    my_kwargs['prop_dir'],
+                    my_kwargs['save_inter'],
+                    my_kwargs['interval'],
+                    flag_last=True
+                )
+                x_image = sample_bin_.reshape(64, 64, 1)
+                print('fom (final, after binarization): ', fom)
+
+                fig = plt.figure(figsize=(20,20))
+                plt.imshow(np.squeeze(np.abs(sensitivity.reshape(64, 64))))
+                plt.xlabel("x")
+                plt.ylabel("y")
+                plt.savefig("sensitivity.png")
+                cmap = plt.cm.get_cmap()
+                colormapping = plt.cm.ScalarMappable(cmap=cmap)
+                cbar = fig.colorbar(colormapping, ax=plt.gca())
+                wandb.log({"sensitivity": plt})
+
+                x_image_ = 1-x_image
+
+                wandb.log({
+                    'fom (binarized)': fom,
+                    "generated_binarized": [wandb.Image(x_image_)],
+                }, step=wandb.config.tsr-t_cur)
                 
-                columns = ['red', 'green', 'blue']
-                wandb.log({"Intensity": wandb.plot.line_series(
-                        xs = range(len(fred)),
-                        ys = [fred, fgreen, fblue],
-                        keys = columns,
-                        xname = "Step"
-                    )})
+                island_deleted = delete_islands_with_size_1(x_image.copy())
+                min_feature_size, min_feature_label, labeled_array = find_minimum_feature_size(island_deleted)
+                
+                fom_island, _ = my_kwargs['simulation_'](
+                    island_deleted.flatten(),
+                    t_cur,
+                    my_kwargs['exp_name'],
+                    my_kwargs['prop_dir'],
+                    my_kwargs['save_inter'],
+                    my_kwargs['interval'],
+                    flag_last=True
+                )
+                
+                wandb.log({
+                    'fom (binarized, island deleted1)': fom_island,
+                    "generated, island deleted1": [wandb.Image(1-island_deleted)],
+                })
+                
+                array_converted_processed = delete_islands_with_size_1(1-island_deleted.copy())
+                array_original = 1 - array_converted_processed
+                min_feature_size2, min_feature_label2, labeled_array2 = find_minimum_feature_size(array_converted_processed)
+                plt2 = highlight_minimum_island(array_original, min_feature_label2, labeled_array2)
+                euler_number_original = euler_number(array_original, connectivity=1)
+                _, num_islands1 = label_(island_deleted, connectivity=1, return_num=True)
+                num_holes1 = num_islands1 - euler_number_original
+
+                euler_number_converted = euler_number(array_converted_processed, connectivity=1)
+                _, num_islands2 = label_(array_converted_processed, connectivity=1, return_num=True)
+                num_holes2 = num_islands2 - euler_number_converted
+
+                fom_island2, _ = my_kwargs['simulation_'](
+                    array_original.flatten(),
+                    t_cur,
+                    my_kwargs['exp_name'],
+                    my_kwargs['prop_dir'],
+                    my_kwargs['save_inter'],
+                    my_kwargs['interval'],
+                    flag_last=True
+                )
+
+                wandb.log({
+                   "highlighted, island deleted2": [wandb.Image(plt2)],
+                })
+                
+                _, min_feature_label3, labeled_array3 = find_minimum_feature_size(array_original)
+                plt3 = highlight_minimum_island(array_original, min_feature_label3, labeled_array3)
+                
+                wandb.log({
+                    'fom (final, binarized and island-deleted)': fom_island2,
+                    "generated_fianl": [wandb.Image(1-array_original)],
+                    "highlighted, final": [wandb.Image(plt3)]
+                })
+
+                print("array 0,0: ", array_original[0,0], ' value')
+
+                wandb.log({
+                    'mfs (original)': min_feature_size,
+                    'mfs (converted)': min_feature_size2,
+                    'number of islands (original)': num_islands1,
+                    'number of islands (converted)': num_islands2,
+                    'number of holes (original)' : num_holes1,
+                    'number of holes (converted)': num_holes2,
+                    'euler_number with 1 connectivity (original)': euler_number_original,
+                    'euler_number with 1 connectivity (converted)': euler_number_converted,
+                })
+
+                np.save('final.npy', array_converted_processed)
+                print('Array saved as final.npy.')
+
+                if my_kwargs['sim_type'] == "CIS_sim":
+                    red_list, blue_list, green_list = load_lists()
+                    fred = extract_elements(red_list)
+                    fgreen = extract_elements(green_list)
+                    fblue = extract_elements(blue_list)
+                    
+                    columns = ['red', 'green', 'blue']
+                    wandb.log({"Intensity": wandb.plot.line_series(
+                            xs = range(len(fred)),
+                            ys = [fred, fgreen, fblue],
+                            keys = columns,
+                            xname = "Step"
+                        )})
 
         return {"sample": sample, "pred_xstart": out["pred_xstart"]}
 
@@ -923,15 +1075,68 @@ class GaussianDiffusion:
             simulationlabel = my_kwargs['sim_type'] + '_sim'
             my_kwargs['simulation_'] = simulation_name(simulationlabel)
             print(my_kwargs['simulation_'])
-            wandb.init(project=simulationlabel+"_diffusion")
-            wandb.run.name = "class"+str(my_kwargs['manual_class_id'])+"_eta"+str(my_kwargs['eta'])+"_tsr"+str(my_kwargs['tsr'])
 
-        cfg = {
-            'eta': my_kwargs['eta'],
-            'tsr': len(indices),
-            'class': model_kwargs['y'][0].item() if model_kwargs is not None and 'y' in model_kwargs else None,
-        }
-        wandb.config.update(cfg)
+            if my_kwargs['guidance_type'] == 'sac':
+                # --- SAC mode: initialize agent, env wrapper, and file logger ---
+                sac_device = device
+                sac_agent = SACAgent(
+                    image_size=shape[2],  # e.g. 64
+                    patch_size=my_kwargs.get('sac_patch_size', 8),
+                    delta=my_kwargs.get('sac_delta', 0.1),
+                    lr=my_kwargs.get('sac_lr', 3e-4),
+                    gamma=0.99,
+                    tau=0.005,
+                    alpha_lr=my_kwargs.get('sac_alpha_lr', 3e-4),
+                    buffer_size=my_kwargs.get('sac_buffer_size', 50000),
+                    batch_size=my_kwargs.get('sac_batch_size', 256),
+                    device=sac_device,
+                )
+                # Load pretrained SAC model if provided
+                if my_kwargs.get('sac_model_path', '') and os.path.exists(my_kwargs['sac_model_path']):
+                    sac_agent.load(my_kwargs['sac_model_path'])
+                    print(f"Loaded SAC model from {my_kwargs['sac_model_path']}")
+
+                sim_env = SimEnvWrapper(
+                    sim_func=my_kwargs['simulation_'],
+                    exp_name=my_kwargs['exp_name'],
+                    prop_dir=my_kwargs['prop_dir'],
+                    save_inter=my_kwargs['save_inter'],
+                    interval=my_kwargs['interval'],
+                )
+                my_kwargs['sac_agent'] = sac_agent
+                my_kwargs['sim_env'] = sim_env
+                my_kwargs['sac_training'] = my_kwargs.get('sac_training', True)
+
+                # Setup file-based logging
+                log_dir = my_kwargs.get('log_dir', './logs/sac')
+                os.makedirs(log_dir, exist_ok=True)
+                sac_log_path = os.path.join(log_dir, 'sac_log.txt')
+                my_kwargs['sac_log_path'] = sac_log_path
+                with open(sac_log_path, 'w') as f:
+                    f.write(f"=== SAC Guided Diffusion Sampling Log ===\n")
+                    f.write(f"sim_type: {my_kwargs['sim_type']}\n")
+                    f.write(f"prop_dir: {my_kwargs['prop_dir']}\n")
+                    f.write(f"sac_delta: {my_kwargs.get('sac_delta', 0.1)}\n")
+                    f.write(f"sac_patch_size: {my_kwargs.get('sac_patch_size', 8)}\n")
+                    f.write(f"sac_lr: {my_kwargs.get('sac_lr', 3e-4)}\n")
+                    f.write(f"sac_batch_size: {my_kwargs.get('sac_batch_size', 256)}\n")
+                    f.write(f"sac_training: {my_kwargs.get('sac_training', True)}\n")
+                    f.write(f"total_timesteps: {len(indices)}\n")
+                    f.write(f"={'='*50}\n")
+                print(f"SAC log file: {sac_log_path}")
+
+            else:
+                # Original adjoint mode uses wandb
+                wandb.init(project=simulationlabel+"_diffusion")
+                wandb.run.name = "class"+str(my_kwargs['manual_class_id'])+"_eta"+str(my_kwargs['eta'])+"_tsr"+str(my_kwargs['tsr'])
+
+        if my_kwargs['guidance_type'] != 'sac':
+            cfg = {
+                'eta': my_kwargs['eta'],
+                'tsr': len(indices),
+                'class': model_kwargs['y'][0].item() if model_kwargs is not None and 'y' in model_kwargs else None,
+            }
+            wandb.config.update(cfg)
 
         for i in indices:
             t = th.tensor([i] * shape[0], device=device)
