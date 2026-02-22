@@ -124,15 +124,14 @@ def run_pbs_field(npz_path: str, out_dir: str, sample_index: int = 0, pol: str =
 
 if __name__ == "__main__":
     run_pbs_field(
-        npz_path="results/pbs/structure_polished/polished_structure.npz",
-        out_dir="results/pbs/fields_polished",
+        npz_path="logs/sim-guided/pbs_tsr=100_class=0_eta=1/samples_1x64x64x1_bin.npz",
+        out_dir="results/pbs/fields",
         sample_index=0,
         pol="TE",
     )
     run_pbs_field(
-        npz_path="results/pbs/structure_polished/polished_structure.npz",
-        out_dir="results/pbs/fields_polished",
+        npz_path="logs/sim-guided/pbs_tsr=100_class=0_eta=1/samples_1x64x64x1_bin.npz",
+        out_dir="results/pbs/fields",
         sample_index=0,
         pol="TM",
     )
-

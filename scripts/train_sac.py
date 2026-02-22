@@ -39,6 +39,37 @@ from guided_diffusion.sim_env import SimEnvWrapper
 from guided_diffusion.simulation import CIS_sim, waveguide_sim, pbs_sim
 
 
+def resolve_hf_checkpoint(model_path, logger, label):
+    if not model_path or not model_path.startswith("hf:"):
+        return model_path
+    spec = model_path[3:]
+    if "/" not in spec:
+        raise ValueError("hf: path must be 'hf:repo_id/filename'")
+    repo_id, filename = spec.rsplit("/", 1)
+    from huggingface_hub import hf_hub_download
+    local_path = hf_hub_download(repo_id=repo_id, filename=filename, repo_type="model")
+    logger.log(f"Resolved {label} from HF: {repo_id}/{filename} -> {local_path}")
+    return local_path
+
+
+def upload_to_hf(local_path, repo_id, commit_message, logger):
+    try:
+        from huggingface_hub import create_repo, upload_file
+    except ImportError as exc:
+        raise ImportError("huggingface_hub is required for HF uploads") from exc
+    if not repo_id:
+        return
+    create_repo(repo_id=repo_id, repo_type="model", exist_ok=True)
+    upload_file(
+        path_or_fileobj=local_path,
+        path_in_repo=os.path.basename(local_path),
+        repo_id=repo_id,
+        repo_type="model",
+        commit_message=commit_message,
+    )
+    logger.log(f"Uploaded to HF: {repo_id}/{os.path.basename(local_path)}")
+
+
 def simulation_name(sim_type):
     """Get simulation function by name."""
     sim_map = {
@@ -185,6 +216,11 @@ def main():
     os.makedirs(log_dir, exist_ok=True)
     logger.configure(dir=log_dir)
 
+    if args.hf_endpoint:
+        os.environ["HF_ENDPOINT"] = args.hf_endpoint
+
+    args.model_path = resolve_hf_checkpoint(args.model_path, logger, "diffusion model")
+
     if args.gpu_id != '':
         torch.cuda.set_device(torch.device(f"cuda:{int(args.gpu_id)}"))
 
@@ -253,6 +289,7 @@ def main():
     logger.log(f"Log file: {log_path}")
 
     best_fom = -float('inf')
+    best_path = None
 
     for episode in range(args.num_episodes):
         ep_start = time.time()
@@ -301,6 +338,12 @@ def main():
     logger.log(f"Training complete. Final model: {final_path}")
     logger.log(f"Best FoM: {best_fom:.6f}")
 
+    if args.hf_repo_id:
+        if best_path and args.hf_upload_best:
+            upload_to_hf(best_path, args.hf_repo_id, "Upload SAC best", logger)
+        if args.hf_upload_final:
+            upload_to_hf(final_path, args.hf_repo_id, "Upload SAC final", logger)
+
     log_file.write(f"\n=== Training Complete ===\n")
     log_file.write(f"Best FoM: {best_fom:.6f}\n")
     log_file.write(f"Final model: {final_path}\n")
@@ -332,6 +375,11 @@ def create_argparser():
         sac_patch_size=8,
         sac_batch_size=256,
         sac_buffer_size=50000,
+        # Hugging Face upload
+        hf_repo_id="",
+        hf_upload_best=False,
+        hf_upload_final=False,
+        hf_endpoint="",
     )
     defaults.update(model_and_diffusion_defaults())
     parser = argparse.ArgumentParser()

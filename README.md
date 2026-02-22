@@ -168,6 +168,28 @@ If you have multiple structural conditions (e.g., different fabrication constrai
 If you have multiple structural conditions (e.g., different fabrication constraints), set it to `True` to enable class-conditional training.
 - Note: We recommend to use the model where the name is `ema_0.9999_*.pt`. The number in `*` means the training step number. `ema` is for `Exponential Moving Average`.
 
+### Load checkpoints from Hugging Face
+
+You can load checkpoints directly from Hugging Face by using the `hf:` prefix in `--model_path` (and `--sac_model_path` if needed). The format is:
+
+```bash
+--model_path hf:<repo_id>/<filename>
+```
+
+Example (using the checkpoint uploaded in this workspace):
+
+```bash
+python image_sample.py \
+    --model_path hf:xsdgm/diffusioninversedesign/ema_0.9999_025000.pt \
+    --log_dir ./logs/sample_hf
+```
+
+If you are in a restricted network, you can set a mirror endpoint before running:
+
+```bash
+export HF_ENDPOINT=https://hf-mirror.com
+```
+
 
 5. **View outputs**
 - Every output (performance, structure) is logged in [wandb](#experiment-logging-with-weights--biases).

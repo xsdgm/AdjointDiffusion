@@ -20,9 +20,25 @@ from guided_diffusion.script_util import (
 )
 
 
+def resolve_hf_checkpoint(model_path, logger, label):
+    if not model_path or not model_path.startswith("hf:"):
+        return model_path
+    spec = model_path[3:]
+    if "/" not in spec:
+        raise ValueError("hf: path must be 'hf:repo_id/filename'")
+    repo_id, filename = spec.rsplit("/", 1)
+    from huggingface_hub import hf_hub_download
+    local_path = hf_hub_download(repo_id=repo_id, filename=filename, repo_type="model")
+    logger.log(f"Resolved {label} from HF: {repo_id}/{filename} -> {local_path}")
+    return local_path
+
+
 def main():
     args = create_argparser().parse_args()
     logger.configure(dir=args.log_dir)
+
+    args.model_path = resolve_hf_checkpoint(args.model_path, logger, "diffusion model")
+    args.sac_model_path = resolve_hf_checkpoint(args.sac_model_path, logger, "SAC model")
     
     assert args.guidance_type in ['dps', 'dds', 'sac']
     my_kwargs = {
