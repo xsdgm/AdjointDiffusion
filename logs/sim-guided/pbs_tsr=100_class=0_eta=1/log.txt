@@ -1,7 +1,8 @@
-Logging to /home/kylin/AdjointDiffusion/logs/sim-guided/pbs_tsr=100_class=0_eta=1
+Logging to /home/xsdgm/AdjointDiffusion/logs/sim-guided/pbs_tsr=100_class=0_eta=1
+Resolved diffusion model from HF: xsdgm/diffusioninversedesign/ema_0.9999_025000.pt -> /home/xsdgm/.cache/huggingface/hub/models--xsdgm--diffusioninversedesign/snapshots/a10f525b905c20b045b01f94f339e80750167c38/ema_0.9999_025000.pt
 using device 0
 creating model and diffusion...
 sampling...
 created 1 samples
-saving to /home/kylin/AdjointDiffusion/logs/sim-guided/pbs_tsr=100_class=0_eta=1/samples_1x64x64x1.npz
+saving to /home/xsdgm/AdjointDiffusion/logs/sim-guided/pbs_tsr=100_class=0_eta=1/samples_1x64x64x1.npz
 sampling complete

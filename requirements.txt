@@ -6,6 +6,7 @@ matplotlib>=3.8
 pillow>=10.0
 tqdm>=4.66
 wandb>=0.16
+huggingface-hub>=0.20.0
 nlopt>=2.7.1
 autograd>=1.6
 scikit-image>=0.22

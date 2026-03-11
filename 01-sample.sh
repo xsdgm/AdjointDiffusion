@@ -1,10 +1,12 @@
 gpu_id=0
 prop="pbs"
-CONDA_ENV=${CONDA_ENV:-pbs_chip_env}
-MODEL_PATH=${MODEL_PATH:-/home/kylin/AdjointDiffusion/ema_0.9999_025000.pt}
-LOG_PATH=${LOG_PATH:-/home/kylin/AdjointDiffusion/logs}
+CONDA_ENV=${CONDA_ENV:-adjoint_diffusion}
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+MODEL_PATH=${MODEL_PATH:-hf:xsdgm/diffusioninversedesign/ema_0.9999_025000.pt}
+LOG_PATH=${LOG_PATH:-${SCRIPT_DIR}/logs}
 ENV_PREFIX="$(conda info --base)/envs/${CONDA_ENV}"
-LD_LIBRARY_PATH="${ENV_PREFIX}/lib:${LD_LIBRARY_PATH}"
+# 添加 WSL CUDA 库路径
+LD_LIBRARY_PATH="/usr/lib/wsl/lib:${ENV_PREFIX}/lib:${LD_LIBRARY_PATH}"
 WANDB_MODE=${WANDB_MODE:-offline}
 
 for manual_class_id in 0

@@ -39,6 +39,16 @@ def main():
 
     args.model_path = resolve_hf_checkpoint(args.model_path, logger, "diffusion model")
     args.sac_model_path = resolve_hf_checkpoint(args.sac_model_path, logger, "SAC model")
+
+    if args.guidance_type == 'sac' and not args.sac_training and not args.sac_model_path:
+        raise ValueError(
+            "SAC inference requires --sac_model_path when --sac_training is False. "
+            "The diffusion model weights are loaded from --model_path, but SAC guidance needs its own trained policy weights."
+        )
+
+    if args.guidance_type == 'sac' and args.batch_size != 1:
+        logger.log("SAC guidance uses a single simulation trajectory per sample. Overriding batch_size to 1.")
+        args.batch_size = 1
     
     assert args.guidance_type in ['dps', 'dds', 'sac']
     my_kwargs = {
@@ -65,7 +75,13 @@ def main():
         'sac_patch_size': args.sac_patch_size,
         'sac_batch_size': args.sac_batch_size,
         'sac_buffer_size': args.sac_buffer_size,
+        'sac_gamma': args.sac_gamma,
+        'sac_reward_scale': args.sac_reward_scale,
+        'sac_start_ratio': args.sac_start_ratio,
         'sac_training': args.sac_training,
+        'sac_agent': None,
+        'sim_env': None,
+        'sac_log_path': None,
     }
     print("my_kwargs: ", my_kwargs)
     
@@ -188,7 +204,10 @@ def create_argparser():
         sac_patch_size=8,
         sac_batch_size=256,
         sac_buffer_size=50000,
-        sac_training=True,
+        sac_gamma=0.99,
+        sac_reward_scale=1.0,
+        sac_start_ratio=0.5,
+        sac_training=False,
     )
     defaults.update(model_and_diffusion_defaults())
     parser = argparse.ArgumentParser()

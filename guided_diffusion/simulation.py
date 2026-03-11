@@ -10,23 +10,23 @@ plt.rcParams["font.sans-serif"] = ["DejaVu Sans"]
 plt.rcParams["figure.figsize"] = (3.5,3.5)
 
 params = {
-    'axes.labelsize':12, # label 폰트 크기
-    'axes.titlesize':12, # 타이틀 폰트 크기
-    'xtick.labelsize':10, # x 축 tick label 폰트 크기
-    'ytick.labelsize':10, # y 축 tick label 폰트 크기 
-    'xtick.direction': 'in', # 눈금 표시 방향 (in, out, inout)
-    'ytick.direction': 'in', # 눈금 표시 방향 (in, out, inout)
-    'lines.markersize': 3, # 마커 사이즈
-    'axes.titlepad': 6, # 타이틀과 그래프 사이의 간격
-    'axes.labelpad': 4, # 축 label과 그래프 사이의 간격
-    'font.size': 12, # font 크기
-    #'font.sans-serif': 'Arial', # font 설정
-    'figure.dpi': 300, # 해상도, vector그래픽의 경우 dpi에 상관없이 깔끔하게 출력됨
-    'figure.autolayout': True, # 레이아웃 자동 설정 (그래프의 모든 요소가 figure 내부에 들어가도록 설정)
-    'xtick.top': True, # 그래프 위쪽 x축 눈금 표시
-    'ytick.right': True, # 그래프 오른쪽 y축 눈금 표시
-    'xtick.major.size': 2, # x축 눈금의 길이
-    'ytick.major.size': 2, # y축 눈금의 길이
+    'axes.labelsize':12, # label 字体大小
+    'axes.titlesize':12, # 标题字体大小
+    'xtick.labelsize':10, # x 轴刻度标签字体大小
+    'ytick.labelsize':10, # y 轴刻度标签字体大小
+    'xtick.direction': 'in', # 刻度显示方向 (in, out, inout)
+    'ytick.direction': 'in', # 刻度显示方向 (in, out, inout)
+    'lines.markersize': 3, # 标记点大小
+    'axes.titlepad': 6, # 标题与图之间的间距
+    'axes.labelpad': 4, # 坐标轴标签与图之间的间距
+    'font.size': 12, # 字体大小
+    #'font.sans-serif': 'Arial', # 字体设置
+    'figure.dpi': 300, # 分辨率，vector 图形不受 dpi 影响也可清晰输出
+    'figure.autolayout': True, # 自动布局（确保图中元素位于 figure 内部）
+    'xtick.top': True, # 显示上侧 x 轴刻度
+    'ytick.right': True, # 显示右侧 y 轴刻度
+    'xtick.major.size': 2, # x 轴刻度长度
+    'ytick.major.size': 2, # y 轴刻度长度
 }
 
 # Save the lists to a file
@@ -59,7 +59,6 @@ def CIS_sim(struct_np, t, exp_name, prop_dir ='',
     import numpy as npa
     import os
     import matplotlib.pyplot as plt
-    import wandb
     struct_np [struct_np > 1] = 1
     struct_np [struct_np < 0 ] = 0
 
@@ -78,8 +77,8 @@ def CIS_sim(struct_np, t, exp_name, prop_dir ='',
     um_scale = 1
     resolution = 21
 
-    design_region_width = 3 # 디자인 영역 너비
-    design_region_height = 3 # 디자인 영역 높이
+    design_region_width = 3 # 设计区域宽度
+    design_region_height = 3 # 设计区域高度
     gapop = 0 ####################################################################################################
     air_gap = 0
     dti = 0.4
@@ -87,7 +86,7 @@ def CIS_sim(struct_np, t, exp_name, prop_dir ='',
     if gapop == 1:
         air_gap = dti/2
     PDsize = 2
-    Lpml = 0.5 # PML 영역 크기
+    Lpml = 0.5 # PML 区域大小
     Sourcespace = 2
 
     Sx = design_region_width
@@ -96,7 +95,7 @@ def CIS_sim(struct_np, t, exp_name, prop_dir ='',
 
     pml_layers = [mp.PML(thickness = Lpml, direction = mp.Y)]
 
-    # 파장, 주파수 설정
+    # 波长、频率设置
     wavelengths = np.linspace(0.40*um_scale, 0.70*um_scale, 31) 
     frequencies = 1/wavelengths
     nf = len(frequencies) # number of frequencies
@@ -120,7 +119,7 @@ def CIS_sim(struct_np, t, exp_name, prop_dir ='',
 
     src_2 = mp.GaussianSource(frequency=fcen_blue, fwidth=fwidth_blue, is_integrated=True)
 
-    source_center = mp.Vector3(0, Sy/ 2 - Lpml - Sourcespace / 2, 0) # Source 위치
+    source_center = mp.Vector3(0, Sy/ 2 - Lpml - Sourcespace / 2, 0) # Source 位置
     source_size = mp.Vector3(Sx, 0, 0)
 
     source = [mp.Source(src_0, component=mp.Ez, size=source_size, center=source_center,),
@@ -130,7 +129,7 @@ def CIS_sim(struct_np, t, exp_name, prop_dir ='',
     Nx = 64#int(round(design_region_resolution * design_region_width)) + 1
     Ny = 64#int(round(design_region_resolution * design_region_height)) + 1
 
-    # 설계 영역과 물질을 바탕으로 설계 영역 설정
+    # 基于设计区域与材料设置设计变量区域
     design_variables = mp.MaterialGrid(mp.Vector3(Nx, Ny), SiO2, SiN, grid_type="U_MEAN")
     design_region = mpa.DesignRegion(
         design_variables,
@@ -143,7 +142,7 @@ def CIS_sim(struct_np, t, exp_name, prop_dir ='',
     """
         
     """
-    # design region과 동일한 size의 Block 생성
+    # 创建与 design region 相同尺寸的 Block
     geometry = [
         mp.Block(
             center=design_region.center, size=design_region.size, material=design_variables
@@ -151,7 +150,7 @@ def CIS_sim(struct_np, t, exp_name, prop_dir ='',
         mp.Block(
             center=mp.Vector3(0, -Sy/2 + PDsize/2, 0), size=mp.Vector3(Sx, PDsize, 0), material=SiO2
         ),
-        # DTI가 있을 경우 사용
+        # 有 DTI 时使用
         mp.Block(
             center=mp.Vector3(-design_region_width/3, -Sy/2 + PDsize/2, 0), size=mp.Vector3(subpixelsize, PDsize, 0), material=SiPD
         ),
@@ -163,31 +162,31 @@ def CIS_sim(struct_np, t, exp_name, prop_dir ='',
         )
     ]
 
-    # Meep simulation 세팅
+    # Meep 仿真设置
     sim = mp.Simulation(
         cell_size=cell_size, 
         boundary_layers=pml_layers,
         geometry=geometry,
         sources=source,
-        default_material=Air, # 빈공간
+        default_material=Air, # 空白空间
         resolution=resolution,
         k_point = mp.Vector3(0,0,0) # bloch boundary
     )
 
     
-    # 모니터 위치와 크기 설정 (focal point)
+    # 监视器位置和尺寸设置 (focal point)
     #monitor_position_0, monitor_size_0 = mp.Vector3(-design_region_width/3, -Sy/2 + PDsize - 0.5/resolution), mp.Vector3(0.01,0) 
     #monitor_position_1, monitor_size_1 = mp.Vector3(0, -Sy/2 + PDsize - 0.5/resolution), mp.Vector3(0.01,0) 
     #monitor_position_2, monitor_size_2 = mp.Vector3(design_region_width/3, -Sy/2 + PDsize - 0.5/resolution), mp.Vector3(0.01,0)
     #monitor_position_3, monitor_size_3 = mp.Vector3(0, -Sy/2 + PDsize + design_region_height + 0.5/resolution), mp.Vector3(design_region_width,0)
-    #모니터 위치와 크기 설정 (focal point)
+    # 监视器位置和尺寸设置 (focal point)
     monitor_position_0, monitor_size_0 = mp.Vector3(-design_region_width/3, -Sy/2 + PDsize - 0.5/resolution), mp.Vector3(subpixelsize,0) 
     monitor_position_1, monitor_size_1 = mp.Vector3(0, -Sy/2 + PDsize - 0.5/resolution), mp.Vector3(subpixelsize,0) 
     monitor_position_2, monitor_size_2 = mp.Vector3(design_region_width/3, -Sy/2 + PDsize - 0.5/resolution), mp.Vector3(subpixelsize,0)
 
 
 
-    # FourierFields를 통해 monitor_position에서 monitor_size만큼의 영역에 대한 Fourier transform을 구함
+    # 通过 FourierFields 计算 monitor_position 处 monitor_size 区域的傅里叶变换
     FourierFields_0 = mpa.FourierFields(sim,mp.Volume(center=monitor_position_0,size=monitor_size_0),mp.Ez,yee_grid=True)
 
     FourierFields_1 = mpa.FourierFields(sim,mp.Volume(center=monitor_position_1,size=monitor_size_1),mp.Ez,yee_grid=True)
@@ -226,14 +225,14 @@ def CIS_sim(struct_np, t, exp_name, prop_dir ='',
         return blue + green + red
     
 
-    # optimization 설정å
+    # 优化设置
     opt = mpa.OptimizationProblem(
         simulation=sim,
         objective_functions=[J_0],
         objective_arguments=ob_list,
         design_regions=[design_region],
         frequencies=frequencies,
-        decay_by=1e-3, # 모니터에 남아있는 필드 값의 비율
+        decay_by=1e-3, # 监视器中残余场值的比例
     )
 
     #struct_random = np.random.choice([0, 1], size=(Nx*Ny))
@@ -252,11 +251,10 @@ def CIS_sim(struct_np, t, exp_name, prop_dir ='',
 
     #opt.plot2D(fields=mp.Ez)
     #plt.savefig('structure.png')
-    fom, dJ_du = opt([flattened_array])
-    g = np.sum(dJ_du, axis=1)
-    #f0 = f0[0]  
-    #print(f0)
-    #print(dJ_du)
+    fom_arr, dJ_du = opt([flattened_array])
+    # Safe robust aggregation regardless of whether wideband or single frequency is used
+    g = np.array(dJ_du).reshape(-1, len(flattened_array)).sum(axis=0)
+    fom = float(np.sum(fom_arr)) # or np.mean depending on objective scaling
 
     return fom, g
 
@@ -264,14 +262,13 @@ def CIS_sim(struct_np, t, exp_name, prop_dir ='',
 
 
 def waveguide_sim(struct_np, t, exp_name, prop_dir='top',
-                save_inter=False, interval=1, flag_last=False):
+                save_inter=False, interval=1, flag_last=False, wideband=False):
     import numpy as np
     import meep as mp
     import meep.adjoint as mpa
     import autograd.numpy as npa
     import os
     import matplotlib.pyplot as plt
-    import wandb
     
     assert prop_dir in ['top', 'bottom', 'front']
     mp.verbosity(0)
@@ -295,7 +292,16 @@ def waveguide_sim(struct_np, t, exp_name, prop_dir='top',
     
     fcen = 1 / 1.55
     width = 0.2
-    fwidth = width * fcen    
+    fwidth = width * fcen
+
+    if wideband:
+        # Cover 1.53 ~ 1.57 μm
+        nf_wideband = 7
+        df_wideband = 1/1.53 - 1/1.57
+    else:
+        nf_wideband = 1
+        df_wideband = 0
+        
     # source_center = [-3.1, 0, 0]
     # source_size = mp.Vector3(0, 1, 0)
     # source_center = [-3.2, 0, 0]
@@ -421,8 +427,8 @@ def waveguide_sim(struct_np, t, exp_name, prop_dir='top',
         objective_arguments=ob_list,
         design_regions=[design_region],
         fcen=fcen,
-        df=0,
-        nf=1,
+        df=df_wideband,
+        nf=nf_wideband,
     )
 
     #struct_random = np.random.choice([0, 1], size=(Nx*Ny))
@@ -447,21 +453,37 @@ def waveguide_sim(struct_np, t, exp_name, prop_dir='top',
     #opt.plot2D(fields=mp.Ez)
     #plt.savefig('structure.png')
 
-    fom, g = opt([flattened_array])
-    fom = fom[0]
-    #f0 = f0[0]  
-    #print(f0)
-    #print(dJ_du)
+    fom_arr, g_arr = opt([flattened_array])
+    
+    n_params = Nx * Ny
+    if wideband:
+        g = np.array(g_arr).reshape(-1, n_params).sum(axis=0)
+        fom = float(np.mean(fom_arr))
+    else:
+        g = np.array(g_arr).flatten()
+        fom = float(np.sum(fom_arr)) # or np.mean depending on array 
+    
     return fom, g
 
 
+def waveguide_sim_single(struct_np, t, exp_name, prop_dir='top',
+                   save_inter=False, interval=1, flag_last=False):
+    return waveguide_sim(struct_np, t, exp_name, prop_dir,
+                   save_inter, interval, flag_last, wideband=False)
+
+
+def waveguide_sim_wideband(struct_np, t, exp_name, prop_dir='top',
+                     save_inter=False, interval=1, flag_last=False):
+    return waveguide_sim(struct_np, t, exp_name, prop_dir,
+                   save_inter, interval, flag_last, wideband=True)
+
+
 def pbs_sim(struct_np, t, exp_name, prop_dir='top',
-            save_inter=False, interval=1, flag_last=False):
+            save_inter=False, interval=1, flag_last=False, wideband=False):
     import numpy as np
     import meep as mp
     import meep.adjoint as mpa
     import autograd.numpy as npa
-    import wandb
 
     mp.verbosity(0)
     struct_np[struct_np > 1] = 1
@@ -480,6 +502,16 @@ def pbs_sim(struct_np, t, exp_name, prop_dir='top',
     fcen = 1 / 1.55
     width = 0.2
     fwidth = width * fcen
+
+    # Wideband vs single-wavelength
+    if wideband:
+        # Cover 1.53 ~ 1.57 μm (7 frequency points) for better convergence
+        nf_wideband = 7
+        df_wideband = 1/1.53 - 1/1.57  # narrower frequency bandwidth
+    else:
+        # Single wavelength at 1.55 μm (original mode)
+        nf_wideband = 1
+        df_wideband = 0
 
     source_center = [-2.7, 0, 0]
     source_size = mp.Vector3(0, 2, 0)
@@ -601,18 +633,28 @@ def pbs_sim(struct_np, t, exp_name, prop_dir='top',
 
         opt = mpa.OptimizationProblem(
             simulation=sim,
-            objective_functions=J,
+            objective_functions=[J],
             objective_arguments=ob_list,
             design_regions=[design_region],
             fcen=fcen,
-            df=0,
-            nf=1,
+            df=df_wideband,
+            nf=nf_wideband,
         )
 
         flattened_array = struct_np.flatten()
         opt.update_design([flattened_array])
-        fom, g = opt([flattened_array])
-        return fom[0], g
+        fom_arr, dJ_du = opt([flattened_array])
+        n_params = Nx * Ny
+        if wideband:
+            # dJ_du may have shape (nf, Nx*Ny), (1, nf, Nx*Ny), etc.
+            # Reshape to (-1, Nx*Ny) and sum over all non-param axes → (Nx*Ny,)
+            g = np.array(dJ_du).reshape(-1, n_params).sum(axis=0)
+            fom_avg = np.mean(fom_arr)
+        else:
+            # Single frequency: dJ_du is 1D or (1, Nx*Ny)
+            g = np.array(dJ_du).flatten()
+            fom_avg = float(np.real(fom_arr).flatten()[0])
+        return fom_avg, g
 
     _safe_reset()
     fom_te, g_te = _run_pol("TE")
@@ -622,7 +664,21 @@ def pbs_sim(struct_np, t, exp_name, prop_dir='top',
     fom = fom_te + fom_tm
     g = g_te + g_tm
 
-    if flag_last and wandb.run is not None:
-        wandb.log({"fom_te": fom_te, "fom_tm": fom_tm, "fom_pbs": fom})
+    if flag_last:
+        print(f"PBS final: fom_te={fom_te:.6f}, fom_tm={fom_tm:.6f}, fom_total={fom:.6f}")
 
     return fom, g
+
+
+def pbs_sim_single(struct_np, t, exp_name, prop_dir='top',
+                   save_inter=False, interval=1, flag_last=False):
+    """PBS simulation with single wavelength (1.55 μm) — for adjoint-guided sampling."""
+    return pbs_sim(struct_np, t, exp_name, prop_dir,
+                   save_inter, interval, flag_last, wideband=False)
+
+
+def pbs_sim_wideband(struct_np, t, exp_name, prop_dir='top',
+                     save_inter=False, interval=1, flag_last=False):
+    """PBS simulation with narrowed wideband (1.53-1.57 μm, 7 freq) — for SAC training."""
+    return pbs_sim(struct_np, t, exp_name, prop_dir,
+                   save_inter, interval, flag_last, wideband=True)
