@@ -81,7 +81,25 @@ def test_train_step():
     res = agent.train_step()
     assert res is not None, "train_step should return dict after enough data"
     assert 'critic_loss' in res and 'actor_loss' in res
+    assert 'monitor' in res and 'q_gap_abs_mean' in res['monitor']
     print(f"train_step OK: critic_loss={res['critic_loss']:.4f}, actor_loss={res['actor_loss']:.4f}")
+
+
+def test_monitor_summary_available():
+    agent = SACAgent(image_size=64, patch_size=8, delta=0.1,
+                     batch_size=4, min_buffer_size=4, device=torch.device("cpu"))
+    pred = torch.randn(1, 1, 64, 64)
+    adj = torch.randn(1, 1, 64, 64)
+    action = agent.select_action(pred, adj, 0.5)
+
+    for _ in range(4):
+        agent.store_transition(pred, adj, 0.5, action, 0.1, pred, adj, 0.4, False)
+
+    _ = agent.train_step()
+    summary = agent.get_monitor_summary()
+    assert summary['steps'] >= 1
+    assert 'counters' in summary and 'apply_action_clamp_ratio' in summary['counters']
+    print("monitor summary OK")
 
 
 def test_get_avg_loss_reset():
@@ -254,6 +272,7 @@ if __name__ == "__main__":
     test_basic()
     test_batched_action_path()
     test_train_step()
+    test_monitor_summary_available()
     test_get_avg_loss_reset()
     test_save_load()
     test_replay_buffer_load_normalizes_legacy_entries()

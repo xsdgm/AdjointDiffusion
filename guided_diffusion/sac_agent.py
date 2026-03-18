@@ -14,7 +14,9 @@ Key improvements over DQN:
 
 import random
 import numpy as np
+import math
 from collections import deque
+from numbers import Number
 
 import torch
 import torch.nn as nn
@@ -269,9 +271,10 @@ class SACCriticNetwork(nn.Module):
 class RewardNormalizer:
     """Running reward normalization using Welford's online algorithm.
 
-    Normalizes rewards to zero-mean, unit-variance using an exponentially
-    weighted running estimate. This replaces hardcoded reward scaling and
-    adapts automatically to the magnitude of FoM differences.
+    Normalizes rewards to zero-mean, unit-variance using a simple
+    cumulative running estimate (equal weight to all past samples).
+    This replaces hardcoded reward scaling and adapts automatically
+    to the magnitude of FoM differences.
     """
 
     def __init__(self, clip_range=10.0):
@@ -435,15 +438,23 @@ class SACAgent:
         image_size=64,
         patch_size=8,
         delta=0.1,
-        lr=3e-4,
+        lr=1e-4,
+        actor_lr=None,
         gamma=0.99,
         tau=0.005,
-        alpha_lr=3e-4,
+        alpha_lr=1e-4,
         buffer_size=50000,
         batch_size=64,
         target_entropy=None,
+        target_entropy_scale=1.0,
+        alpha_init=1.0,
         reward_scale=1.0,
+        target_value_clip=10.0,
+        actor_update_interval=1,
         min_buffer_size=None,
+        max_grad_norm=1.0,
+        monitor_window=200,
+        strict_numerics=False,
         device=None,
     ):
         """
@@ -451,16 +462,25 @@ class SACAgent:
             image_size: size of the square design image (default 64)
             patch_size: size of square patches for action space (default 8)
             delta: perturbation magnitude scaling factor
-            lr: learning rate for actor and critic
+            lr: learning rate for critics
+            actor_lr: learning rate for actor (default: same as lr)
             gamma: discount factor
             tau: soft update coefficient for target networks
             alpha_lr: learning rate for temperature parameter
             buffer_size: replay buffer capacity
             batch_size: batch size for training
             target_entropy: target entropy for automatic temperature tuning
+            target_entropy_scale: scale factor for default target entropy when target_entropy is None
+            alpha_init: initial temperature value (must be > 0)
             reward_scale: fixed multiplier for raw rewards (default 1.0)
+            target_value_clip: clamp range for TD targets to reduce large-gradient spikes;
+                               set None to disable clipping
+            actor_update_interval: update actor/alpha once every N critic updates
             min_buffer_size: minimum transitions before training starts
                              (default: batch_size * 4)
+            max_grad_norm: gradient clipping threshold for actor and critics
+            monitor_window: number of recent train-step diagnostics to keep
+            strict_numerics: if True, raise error on NaN/Inf diagnostics
             device: torch device
         """
         self.image_size = image_size
@@ -469,9 +489,14 @@ class SACAgent:
         self.gamma = gamma
         self.tau = tau
         self.batch_size = batch_size
+        self.max_grad_norm = max_grad_norm
         self.reward_scale = reward_scale
+        self.target_value_clip = target_value_clip
+        self.actor_update_interval = max(int(actor_update_interval), 1)
         self.min_buffer_size = min_buffer_size if min_buffer_size is not None else batch_size * 4
+        self.strict_numerics = strict_numerics
         self.device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        actor_lr = lr if actor_lr is None else actor_lr
 
         if patch_size <= 0:
             raise ValueError("patch_size must be a positive integer")
@@ -484,7 +509,7 @@ class SACAgent:
 
         # Actor
         self.actor = SACActorNetwork(image_size, patch_size, in_channels=3).to(self.device)
-        self.actor_optimizer = optim.Adam(self.actor.parameters(), lr=lr)
+        self.actor_optimizer = optim.Adam(self.actor.parameters(), lr=actor_lr)
 
         # Twin Critics
         self.critic1 = SACCriticNetwork(image_size, patch_size, in_channels=3).to(self.device)
@@ -501,10 +526,16 @@ class SACAgent:
 
         # Automatic temperature tuning
         if target_entropy is None:
-            self.target_entropy = -float(self.action_dim)  # -dim(A) heuristic
+            self._uses_scaled_target_entropy = True
+            self.target_entropy_scale = float(target_entropy_scale)
+            self.target_entropy = -float(self.action_dim) * float(target_entropy_scale)
         else:
+            self._uses_scaled_target_entropy = False
+            self.target_entropy_scale = None
             self.target_entropy = target_entropy
-        self.log_alpha = torch.tensor([0.0], requires_grad=True, device=self.device)  # init alpha=1.0
+        if alpha_init <= 0:
+            raise ValueError("alpha_init must be > 0")
+        self.log_alpha = torch.tensor([math.log(float(alpha_init))], requires_grad=True, device=self.device)
         self.alpha_optimizer = optim.Adam([self.log_alpha], lr=alpha_lr)
 
         self.replay_buffer = ReplayBuffer(capacity=buffer_size)
@@ -514,10 +545,99 @@ class SACAgent:
         self.total_critic_loss = 0.0
         self.total_actor_loss = 0.0
         self.loss_count = 0
+        self.monitor_history = deque(maxlen=monitor_window)
+        self.last_monitor = {}
+        self.monitor_counters = {
+            'nonfinite_reward': 0,
+            'nonfinite_action': 0,
+            'out_of_range_action': 0,
+            'nonfinite_train_tensor': 0,
+            'apply_action_clamp_ratio': 0.0,
+            'apply_action_calls': 0,
+            'eta_weight_mean': 0.0,
+            'eta_weight_sq_mean': 0.0,
+            'action_abs_gt95_ratio': 0.0,
+        }
 
     @property
     def alpha(self):
         return self.log_alpha.exp()
+
+    @staticmethod
+    def _as_float(value):
+        if isinstance(value, Number):
+            return float(value)
+        if torch.is_tensor(value):
+            return float(value.detach().float().mean().item())
+        if isinstance(value, np.generic):
+            return float(value.item())
+        return float(value)
+
+    def _record_monitor(self, info):
+        self.last_monitor = info
+        self.monitor_history.append(info)
+
+    def _ensure_finite(self, name, tensor):
+        finite = torch.isfinite(tensor)
+        if finite.all():
+            return
+        self.monitor_counters['nonfinite_train_tensor'] += 1
+        msg = f"Non-finite values detected in '{name}' during SAC training"
+        if self.strict_numerics:
+            raise RuntimeError(msg)
+
+    def get_monitor_snapshot(self):
+        """Return latest SAC diagnostics for logging/monitoring."""
+        return dict(self.last_monitor)
+
+    def get_monitor_summary(self):
+        """Return rolling average of recent diagnostics plus lifetime counters."""
+        counters = dict(self.monitor_counters)
+        eta_mean = float(counters.get('eta_weight_mean', 0.0))
+        eta_sq_mean = float(counters.get('eta_weight_sq_mean', eta_mean * eta_mean))
+        eta_var = max(eta_sq_mean - eta_mean * eta_mean, 0.0)
+        counters['eta_weight_std'] = float(np.sqrt(eta_var))
+
+        if not self.monitor_history:
+            return {
+                'steps': 0,
+                'eta_weight_mean': eta_mean,
+                'eta_weight_std': counters['eta_weight_std'],
+                'action_abs_gt95_ratio': float(counters.get('action_abs_gt95_ratio', 0.0)),
+                'counters': counters,
+            }
+
+        keys = [
+            'critic_loss', 'actor_loss', 'alpha', 'alpha_loss',
+            'reward_mean', 'reward_std', 'target_q_mean', 'target_q_std',
+            'target_value_mean', 'target_value_std',
+            'q1_mean', 'q2_mean', 'q_gap_abs_mean',
+            'td_error_abs_mean', 'log_prob_mean', 'entropy_estimate',
+            'critic1_grad_norm_pre', 'critic2_grad_norm_pre', 'actor_grad_norm_pre',
+            'critic1_grad_norm', 'critic2_grad_norm', 'actor_grad_norm',
+            'critic1_clip_hit', 'critic2_clip_hit', 'actor_clip_hit',
+            'done_ratio',
+        ]
+        summary = {'steps': len(self.monitor_history)}
+        for key in keys:
+            values = [entry[key] for entry in self.monitor_history if key in entry]
+            if values:
+                summary[key] = float(np.mean(values))
+        summary['eta_weight_mean'] = eta_mean
+        summary['eta_weight_std'] = counters['eta_weight_std']
+        summary['action_abs_gt95_ratio'] = float(counters.get('action_abs_gt95_ratio', 0.0))
+        summary['counters'] = counters
+        return summary
+
+    @staticmethod
+    def _grad_norm(module):
+        total_sq = 0.0
+        for param in module.parameters():
+            if param.grad is None:
+                continue
+            grad = param.grad.detach()
+            total_sq += float(torch.sum(grad * grad).item())
+        return total_sq ** 0.5
 
     def normalize_reward(self, raw_reward):
         """Normalize a raw reward using running statistics.
@@ -525,6 +645,23 @@ class SACAgent:
         Call this instead of hardcoded scaling (e.g. ``reward * 100``).
         """
         return self.reward_normalizer.normalize(raw_reward)
+
+    def set_delta(self, delta):
+        """Update action step size used by apply_action at runtime."""
+        delta = float(delta)
+        if delta <= 0:
+            raise ValueError("delta must be > 0")
+        self.delta = delta
+
+    def set_target_entropy_scale(self, target_entropy_scale):
+        """Update auto-entropy target scale at runtime (only in scaled mode)."""
+        if not self._uses_scaled_target_entropy:
+            return
+        scale = float(target_entropy_scale)
+        if scale <= 0:
+            raise ValueError("target_entropy_scale must be > 0")
+        self.target_entropy_scale = scale
+        self.target_entropy = -float(self.action_dim) * scale
 
     def _build_state(self, pred_xstart, adjoint_grad, timestep):
         """
@@ -634,6 +771,21 @@ class SACAgent:
 
         modified = pred_xstart + blended_action
         modified = modified.clamp(-1, 1)
+        # Saturation ratio helps identify unstable deltas causing clipping collapse.
+        clamp_ratio = ((modified <= -0.9999) | (modified >= 0.9999)).float().mean().item()
+        self.monitor_counters['apply_action_calls'] += 1
+        prev = self.monitor_counters['apply_action_clamp_ratio']
+        calls = self.monitor_counters['apply_action_calls']
+        self.monitor_counters['apply_action_clamp_ratio'] = prev + (clamp_ratio - prev) / calls
+        eta_scalar = float(eta_weight.mean().item())
+        eta_prev = float(self.monitor_counters.get('eta_weight_mean', 0.0))
+        self.monitor_counters['eta_weight_mean'] = eta_prev + (eta_scalar - eta_prev) / calls
+        eta_sq_scalar = eta_scalar * eta_scalar
+        eta_sq_prev = float(self.monitor_counters.get('eta_weight_sq_mean', 0.0))
+        self.monitor_counters['eta_weight_sq_mean'] = eta_sq_prev + (eta_sq_scalar - eta_sq_prev) / calls
+        action_edge_ratio = float((action.abs() > 0.95).float().mean().item())
+        edge_prev = float(self.monitor_counters.get('action_abs_gt95_ratio', 0.0))
+        self.monitor_counters['action_abs_gt95_ratio'] = edge_prev + (action_edge_ratio - edge_prev) / calls
         if squeeze_action and batch_size == 1:
             return modified
         return modified
@@ -647,6 +799,22 @@ class SACAgent:
         semantics. Running statistics are still updated online and are applied
         later during training when a batch is sampled.
         """
+        if not np.isfinite(float(reward)):
+            self.monitor_counters['nonfinite_reward'] += 1
+            if self.strict_numerics:
+                raise RuntimeError("Non-finite reward detected before replay insertion")
+
+        if torch.is_tensor(action):
+            action_tensor = action.detach().float()
+        else:
+            action_tensor = torch.as_tensor(action, dtype=torch.float32)
+        if not torch.isfinite(action_tensor).all():
+            self.monitor_counters['nonfinite_action'] += 1
+            if self.strict_numerics:
+                raise RuntimeError("Non-finite action detected before replay insertion")
+        if ((action_tensor < -1.0001) | (action_tensor > 1.0001)).any():
+            self.monitor_counters['out_of_range_action'] += 1
+
         self.reward_normalizer.update(reward)
         self.replay_buffer.push(
             pred_xstart, adjoint_grad, timestep, action, reward,
@@ -706,6 +874,15 @@ class SACAgent:
         next_t_channels = next_timesteps.view(-1, 1, 1, 1).expand_as(next_states)
         next_state_3ch = torch.cat([next_states, next_adj_grads_norm, next_t_channels], dim=1)
 
+        for name, tensor in (
+            ('state_3ch', state_3ch),
+            ('next_state_3ch', next_state_3ch),
+            ('actions', actions),
+            ('rewards', rewards),
+            ('dones', dones),
+        ):
+            self._ensure_finite(name, tensor)
+
         with torch.enable_grad():
             # ---- Update Critics ----
             with torch.no_grad():
@@ -715,23 +892,37 @@ class SACAgent:
                 target_q = torch.min(target_q1, target_q2).squeeze(-1)
                 target_q = target_q - self.alpha.detach() * next_log_probs
                 target_value = rewards + self.gamma * (1 - dones) * target_q
+                if self.target_value_clip is not None:
+                    target_value = torch.clamp(
+                        target_value,
+                        -float(self.target_value_clip),
+                        float(self.target_value_clip),
+                    )
 
             current_q1 = self.critic1(state_3ch, actions).squeeze(-1)
             current_q2 = self.critic2(state_3ch, actions).squeeze(-1)
 
-            critic1_loss = F.mse_loss(current_q1, target_value)
-            critic2_loss = F.mse_loss(current_q2, target_value)
+            # Huber is less sensitive to outlier TD errors than plain MSE,
+            # which helps prevent persistent grad clipping.
+            critic1_loss = F.smooth_l1_loss(current_q1, target_value)
+            critic2_loss = F.smooth_l1_loss(current_q2, target_value)
 
             # Backward separately to avoid double-counting gradients
             # if a shared encoder is ever introduced
             self.critic1_optimizer.zero_grad()
             critic1_loss.backward()
-            torch.nn.utils.clip_grad_norm_(self.critic1.parameters(), max_norm=1.0)
+            critic1_grad_norm_pre = float(torch.nn.utils.clip_grad_norm_(
+                self.critic1.parameters(), max_norm=self.max_grad_norm
+            ))
+            critic1_grad_norm = self._grad_norm(self.critic1)
             self.critic1_optimizer.step()
 
             self.critic2_optimizer.zero_grad()
             critic2_loss.backward()
-            torch.nn.utils.clip_grad_norm_(self.critic2.parameters(), max_norm=1.0)
+            critic2_grad_norm_pre = float(torch.nn.utils.clip_grad_norm_(
+                self.critic2.parameters(), max_norm=self.max_grad_norm
+            ))
+            critic2_grad_norm = self._grad_norm(self.critic2)
             self.critic2_optimizer.step()
 
             critic_loss = critic1_loss + critic2_loss  # for logging only
@@ -749,19 +940,27 @@ class SACAgent:
 
                 actor_loss = (self.alpha.detach() * log_probs - q_new).mean()
 
-                self.actor_optimizer.zero_grad()
-                actor_loss.backward()
-                torch.nn.utils.clip_grad_norm_(self.actor.parameters(), max_norm=1.0)
-                self.actor_optimizer.step()
+                should_update_actor = (self.train_step_count % self.actor_update_interval) == 0
+                if should_update_actor:
+                    self.actor_optimizer.zero_grad()
+                    actor_loss.backward()
+                    actor_grad_norm_pre = float(torch.nn.utils.clip_grad_norm_(
+                        self.actor.parameters(), max_norm=self.max_grad_norm
+                    ))
+                    actor_grad_norm = self._grad_norm(self.actor)
+                    self.actor_optimizer.step()
+                else:
+                    actor_grad_norm_pre = 0.0
+                    actor_grad_norm = 0.0
             finally:
                 self._set_critic_grad_enabled(True)
 
             # ---- Update Temperature ----
             alpha_loss = -(self.log_alpha * (log_probs.detach() + self.target_entropy)).mean()
-
-            self.alpha_optimizer.zero_grad()
-            alpha_loss.backward()
-            self.alpha_optimizer.step()
+            if should_update_actor:
+                self.alpha_optimizer.zero_grad()
+                alpha_loss.backward()
+                self.alpha_optimizer.step()
 
         # Soft update target networks
         self._soft_update(self.critic1, self.critic1_target)
@@ -774,11 +973,44 @@ class SACAgent:
         self.total_actor_loss += actor_loss_val
         self.loss_count += 1
 
+        td_error = target_value.detach() - 0.5 * (current_q1.detach() + current_q2.detach())
+        monitor_info = {
+            'step': self.train_step_count,
+            'critic_loss': critic_loss_val,
+            'actor_loss': actor_loss_val,
+            'alpha': self.alpha.item(),
+            'alpha_loss': alpha_loss.item(),
+            'reward_mean': rewards.mean().item(),
+            'reward_std': rewards.std(unbiased=False).item(),
+            'target_q_mean': target_q.mean().item(),
+            'target_q_std': target_q.std(unbiased=False).item(),
+            'target_value_mean': target_value.mean().item(),
+            'target_value_std': target_value.std(unbiased=False).item(),
+            'q1_mean': current_q1.mean().item(),
+            'q2_mean': current_q2.mean().item(),
+            'q_gap_abs_mean': (current_q1 - current_q2).abs().mean().item(),
+            'td_error_abs_mean': td_error.abs().mean().item(),
+            'log_prob_mean': log_probs.mean().item(),
+            'entropy_estimate': (-log_probs).mean().item(),
+            'critic1_grad_norm_pre': self._as_float(critic1_grad_norm_pre),
+            'critic2_grad_norm_pre': self._as_float(critic2_grad_norm_pre),
+            'actor_grad_norm_pre': self._as_float(actor_grad_norm_pre),
+            'critic1_grad_norm': self._as_float(critic1_grad_norm),
+            'critic2_grad_norm': self._as_float(critic2_grad_norm),
+            'actor_grad_norm': self._as_float(actor_grad_norm),
+            'critic1_clip_hit': float(critic1_grad_norm_pre > self.max_grad_norm),
+            'critic2_clip_hit': float(critic2_grad_norm_pre > self.max_grad_norm),
+            'actor_clip_hit': float(actor_grad_norm_pre > self.max_grad_norm),
+            'done_ratio': dones.mean().item(),
+        }
+        self._record_monitor(monitor_info)
+
         return {
             'critic_loss': critic_loss_val,
             'actor_loss': actor_loss_val,
             'alpha': self.alpha.item(),
             'alpha_loss': alpha_loss.item(),
+            'monitor': monitor_info,
         }
 
     def _soft_update(self, source, target):
@@ -820,6 +1052,7 @@ class SACAgent:
             'train_step_count': self.train_step_count,
             'reward_normalizer': self.reward_normalizer.state_dict(),
             'replay_buffer': self.replay_buffer.state_dict(),
+            'monitor_counters': self.monitor_counters,
         }, path)
 
     def _move_optimizer_state_to_device(self, optimizer):
@@ -856,3 +1089,6 @@ class SACAgent:
             self.reward_normalizer.load_state_dict(checkpoint['reward_normalizer'])
         if 'replay_buffer' in checkpoint:
             self.replay_buffer.load_state_dict(checkpoint['replay_buffer'])
+        if 'monitor_counters' in checkpoint:
+            for key, value in checkpoint['monitor_counters'].items():
+                self.monitor_counters[key] = value
