@@ -38,19 +38,8 @@ def main():
     logger.configure(dir=args.log_dir)
 
     args.model_path = resolve_hf_checkpoint(args.model_path, logger, "diffusion model")
-    args.sac_model_path = resolve_hf_checkpoint(args.sac_model_path, logger, "SAC model")
-
-    if args.guidance_type == 'sac' and not args.sac_training and not args.sac_model_path:
-        raise ValueError(
-            "SAC inference requires --sac_model_path when --sac_training is False. "
-            "The diffusion model weights are loaded from --model_path, but SAC guidance needs its own trained policy weights."
-        )
-
-    if args.guidance_type == 'sac' and args.batch_size != 1:
-        logger.log("SAC guidance uses a single simulation trajectory per sample. Overriding batch_size to 1.")
-        args.batch_size = 1
     
-    assert args.guidance_type in ['dps', 'dds', 'sac']
+    assert args.guidance_type in ['dps', 'dds']
     my_kwargs = {
         'sim_guided': args.sim_guided,
         'eta': args.eta,
@@ -67,21 +56,6 @@ def main():
         'tsr': args.tsr,
         'manual_class_id': args.manual_class_id,
         'log_dir': args.log_dir,
-        # SAC-specific parameters
-        'sac_model_path': args.sac_model_path,
-        'sac_lr': args.sac_lr,
-        'sac_alpha_lr': args.sac_alpha_lr,
-        'sac_delta': args.sac_delta,
-        'sac_patch_size': args.sac_patch_size,
-        'sac_batch_size': args.sac_batch_size,
-        'sac_buffer_size': args.sac_buffer_size,
-        'sac_gamma': args.sac_gamma,
-        'sac_reward_scale': args.sac_reward_scale,
-        'sac_start_ratio': args.sac_start_ratio,
-        'sac_training': args.sac_training,
-        'sac_agent': None,
-        'sim_env': None,
-        'sac_log_path': None,
     }
     print("my_kwargs: ", my_kwargs)
     
@@ -196,18 +170,6 @@ def create_argparser():
         use_adjgrad_norm = False,
         sim_type = 'waveguide',
         tsr=100,
-        # SAC-specific parameters
-        sac_model_path='',
-        sac_lr=3e-4,
-        sac_alpha_lr=3e-4,
-        sac_delta=0.1,
-        sac_patch_size=8,
-        sac_batch_size=256,
-        sac_buffer_size=50000,
-        sac_gamma=0.99,
-        sac_reward_scale=1.0,
-        sac_start_ratio=0.5,
-        sac_training=False,
     )
     defaults.update(model_and_diffusion_defaults())
     parser = argparse.ArgumentParser()

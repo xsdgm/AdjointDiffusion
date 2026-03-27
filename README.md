@@ -170,7 +170,7 @@ If you have multiple structural conditions (e.g., different fabrication constrai
 
 ### Load checkpoints from Hugging Face
 
-You can load checkpoints directly from Hugging Face by using the `hf:` prefix in `--model_path` (and `--sac_model_path` if needed). The format is:
+You can load checkpoints directly from Hugging Face by using the `hf:` prefix in `--model_path`. The format is:
 
 ```bash
 --model_path hf:<repo_id>/<filename>

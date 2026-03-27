@@ -28,10 +28,7 @@ from skimage.measure import euler_number
 from skimage.measure import label as label_
 
 
-from guided_diffusion.simulation import CIS_sim, waveguide_sim, waveguide_sim_single, waveguide_sim_wideband, pbs_sim, pbs_sim_single, pbs_sim_wideband
-from guided_diffusion.sac_agent import SACAgent
-from guided_diffusion.sim_env import SimEnvWrapper
-
+from guided_diffusion.simulation import CIS_sim, waveguide_sim, waveguide_sim_single, pbs_sim, pbs_sim_single, pbs_sim_wideband
 
 # log handler
 if os.path.exists('lists.pkl'):
@@ -149,45 +146,14 @@ def simulation_name(sim_name, guidance_type='dps'):  # sim: function
     if sim_name == "CIS_sim":
         return CIS_sim
     elif sim_name == "waveguide_sim":
-        if guidance_type == 'sac':
-            return waveguide_sim_wideband  # SAC uses multi-wavelength
-        else:
-            return waveguide_sim_single   # Adjoint/DPS/DDS uses single wavelength
+        return waveguide_sim_single   # Adjoint/DPS/DDS uses single wavelength
     elif sim_name == "pbs_sim":
-        if guidance_type == 'sac':
-            return pbs_sim_wideband  # SAC uses multi-wavelength
-        else:
-            return pbs_sim_single   # Adjoint/DPS/DDS uses single wavelength
+        return pbs_sim_wideband   # Adjoint/DPS/DDS uses multiple wavelength
     else:
         raise ValueError(
             f"Unsupported simulation name '{sim_name}'. Supported names are 'CIS', 'waveguide', and 'pbs'."
         )
 
-
-def finalize_sac_pending_transition(
-    sac_agent,
-    pending,
-    next_state,
-    next_adjoint_grad,
-    next_timestep_norm,
-    done=None,
-):
-    """Flush a deferred SAC transition once the true next state is available."""
-    if pending is None:
-        return
-
-    sac_agent.store_transition(
-        pending['state'],
-        pending['adjoint_grad'],
-        pending['timestep_norm'],
-        pending['action'],
-        pending['reward'],
-        next_state,
-        next_adjoint_grad,
-        next_timestep_norm,
-        pending['done'] if done is None else done,
-    )
-    sac_agent.train_step()
 
 
 def get_named_beta_schedule(schedule_name, num_diffusion_timesteps):
@@ -718,116 +684,7 @@ class GaussianDiffusion:
                 print(f'fom at step {tsr-t_cur}: ', fom)
                 print('adjgrad_norm:', adjgrad_norm)
 
-            elif my_kwargs['guidance_type'] == 'sac':
-                # ---- SAC Guidance Mode ----
-                # Skip early (noisy) diffusion steps where FoM signal is unreliable,
-                # and stop at stoptime to let diffusion converge freely.
-                sac_start_ratio = my_kwargs.get('sac_start_ratio', 0.5)
-                stoptime = my_kwargs.get('stoptime', 0)
-                if t_cur > stoptime * self.num_timesteps and t_cur < sac_start_ratio * self.num_timesteps:
-                    # Uses deferred transition pattern: the true next_state (pred_xstart
-                    # at t-1) is only available in the next call, so we store the
-                    # transition then instead of using the modified pred as next_state.
-                    sac_agent = my_kwargs['sac_agent']
-                    sim_env = my_kwargs['sim_env']
-                    sac_training = my_kwargs.get('sac_training', True)
-                    diffusion_step = self.num_timesteps - t_cur
 
-                    # Current state: pred_xstart
-                    state = out['pred_xstart'].detach().clone()  # [-1, 1]
-                    state_01 = state * 0.5 + 0.5  # [0, 1]
-
-                    # Get FoM AND adjoint gradient from simulator
-                    fom_before, adjoint_grad = sim_env.evaluate_with_gradient(
-                        state_01.cpu().numpy(), t_cur
-                    )
-                    adjoint_grad_tensor = th.from_numpy(
-                        adjoint_grad.reshape(state.shape)
-                    ).float().to(state.device)
-
-                    # SAC selects action (using pred_xstart + adjoint gradient + timestep)
-                    timestep_norm = t_cur / self.num_timesteps
-
-                    # Finalize the deferred transition from the previous step,
-                    # now that the true next_state (current pred_xstart) is known.
-                    if sac_training:
-                        pending = my_kwargs.get('sac_pending_transition')
-                        if pending is not None:
-                            finalize_sac_pending_transition(
-                                sac_agent,
-                                pending,
-                                state.detach().clone(),
-                                adjoint_grad_tensor.detach().clone(),
-                                timestep_norm,
-                            )
-
-                    deterministic = not sac_training
-                    action = sac_agent.select_action(
-                        state, adjoint_grad_tensor, timestep_norm,
-                        deterministic=deterministic
-                    )
-
-                    # Apply continuous action to all patches simultaneously
-                    new_pred = sac_agent.apply_action(state, action, adjoint_grad_tensor)
-                    new_pred_01 = new_pred.detach() * 0.5 + 0.5
-
-                    # Compute reward and defer transition storage
-                    if sac_training:
-                        fom_after, next_adjoint_grad_after = sim_env.evaluate_with_gradient(
-                            new_pred_01.cpu().numpy(), t_cur
-                        )
-                        next_adjoint_grad_after_tensor = th.from_numpy(
-                            next_adjoint_grad_after.reshape(state.shape)
-                        ).float().to(state.device)
-
-                        reward_raw = fom_after - fom_before
-
-                        next_timestep_norm = max((t_cur - 1) / self.num_timesteps, 0.0)
-                        done = (t_cur - 1) <= (my_kwargs['stoptime'] * self.num_timesteps)
-
-                        # Defer: store transition info, to be finalized next step
-                        # when the true next pred_xstart is available
-                        my_kwargs['sac_pending_transition'] = {
-                            'state': state.detach().clone(),
-                            'adjoint_grad': adjoint_grad_tensor.detach().clone(),
-                            'timestep_norm': timestep_norm,
-                            'action': action.detach().clone(),
-                            'reward': reward_raw,
-                            'done': done,
-                            # Fallback for terminal step (no next controlled step)
-                            'fallback_next_state': new_pred.detach().clone(),
-                            'fallback_next_adjoint_grad': next_adjoint_grad_after_tensor.detach().clone(),
-                            'fallback_next_timestep_norm': next_timestep_norm,
-                        }
-                    else:
-                        fom_after = sim_env.evaluate(new_pred_01.cpu().numpy(), t_cur)
-                        reward_raw = fom_after - fom_before
-
-                    fom = fom_after
-
-                    # Update pred_xstart with SAC-modified version
-                    out['pred_xstart'] = new_pred.clamp(-1, 1)
-                    out['mean'], _, _ = self.q_posterior_mean_variance(
-                        x_start=out['pred_xstart'], x_t=x, t=t
-                    )
-
-                    end = time()
-                    avg_critic_loss, avg_actor_loss = sac_agent.get_avg_loss()
-
-                    # File-based logging (use raw unscaled reward for readability)
-                    log_line = (f"step={diffusion_step:4d} | t={t_cur:4d} | "
-                                f"fom={fom:.6f} | reward={reward_raw:.6f} | "
-                                f"alpha={sac_agent.alpha.item():.4f} | "
-                                f"critic_loss={avg_critic_loss:.6f} | "
-                                f"actor_loss={avg_actor_loss:.6f} | time={end-start:.2f}s")
-                    print(log_line)
-                    sac_log_path = my_kwargs.get('sac_log_path', '')
-                    if sac_log_path:
-                        with open(sac_log_path, 'a') as f:
-                            f.write(log_line + '\n')
-
-        # SAC mode: xt_grad is always 0 — SAC modifies out["mean"] directly
-        # via q_posterior_mean_variance above, so the eta * xt_grad term is a no-op.
         sample = out["mean"] + nonzero_mask * th.exp(0.5 * out["log_variance"]) * noise + eta * xt_grad
         
         if t_cur == 0:
@@ -836,174 +693,86 @@ class GaussianDiffusion:
             sample_bin_[sample_bin_ > 0.5] = 1.0
             sample_bin_[sample_bin_ <= 0.5] = 0.0
 
-            if my_kwargs['guidance_type'] == 'sac':
-                # SAC mode: flush the last deferred transition as terminal
-                sac_agent = my_kwargs['sac_agent']
-                pending = my_kwargs.get('sac_pending_transition')
-                if pending is not None and my_kwargs.get('sac_training', True):
-                    finalize_sac_pending_transition(
-                        sac_agent,
-                        pending,
-                        pending['fallback_next_state'],
-                        pending['fallback_next_adjoint_grad'],
-                        pending['fallback_next_timestep_norm'],
-                        done=True,
-                    )
-                    my_kwargs['sac_pending_transition'] = None
+            # Original adjoint mode — results saved to log_dir
+            log_dir = my_kwargs['log_dir']
+            fom, sensitivity = my_kwargs['simulation_'](
+                sample_bin_,
+                t_cur,
+                my_kwargs['exp_name'],
+                my_kwargs['prop_dir'],
+                my_kwargs['save_inter'],
+                my_kwargs['interval'],
+                flag_last=True
+            )
+            x_image = sample_bin_.reshape(64, 64, 1)
+            print('fom (final, after binarization): ', fom)
 
-                # SAC mode: final evaluation with file logging
-                sim_env = my_kwargs['sim_env']
-                fom_final = sim_env.evaluate(sample_bin_, t_cur, flag_last=True)
-                x_image = sample_bin_.reshape(64, 64, 1)
-                print('fom (final, after binarization): ', fom_final)
+            fig = plt.figure(figsize=(20,20))
+            plt.imshow(np.squeeze(np.abs(sensitivity.reshape(64, 64))))
+            plt.xlabel("x")
+            plt.ylabel("y")
+            plt.savefig(os.path.join(log_dir, 'sensitivity.png'))
+            plt.close()
 
-                island_deleted = delete_islands_with_size_1(x_image.copy())
-                min_feature_size, min_feature_label, labeled_array = find_minimum_feature_size(island_deleted)
-                fom_island = sim_env.evaluate(island_deleted.flatten(), t_cur, flag_last=True)
+            island_deleted = delete_islands_with_size_1(x_image.copy())
+            min_feature_size, min_feature_label, labeled_array = find_minimum_feature_size(island_deleted)
+            
+            fom_island, _ = my_kwargs['simulation_'](
+                island_deleted.flatten(),
+                t_cur,
+                my_kwargs['exp_name'],
+                my_kwargs['prop_dir'],
+                my_kwargs['save_inter'],
+                my_kwargs['interval'],
+                flag_last=True
+            )
+            
+            array_converted_processed = delete_islands_with_size_1(1-island_deleted.copy())
+            array_original = 1 - array_converted_processed
+            min_feature_size2, min_feature_label2, labeled_array2 = find_minimum_feature_size(array_converted_processed)
+            euler_number_original = euler_number(array_original, connectivity=1)
+            _, num_islands1 = label_(island_deleted, connectivity=1, return_num=True)
+            num_holes1 = num_islands1 - euler_number_original
 
-                array_converted_processed = delete_islands_with_size_1(1-island_deleted.copy())
-                array_original = 1 - array_converted_processed
-                min_feature_size2, _, _ = find_minimum_feature_size(array_converted_processed)
-                euler_number_original = euler_number(array_original, connectivity=1)
-                _, num_islands1 = label_(island_deleted, connectivity=1, return_num=True)
-                num_holes1 = num_islands1 - euler_number_original
-                euler_number_converted = euler_number(array_converted_processed, connectivity=1)
-                _, num_islands2 = label_(array_converted_processed, connectivity=1, return_num=True)
-                num_holes2 = num_islands2 - euler_number_converted
+            euler_number_converted = euler_number(array_converted_processed, connectivity=1)
+            _, num_islands2 = label_(array_converted_processed, connectivity=1, return_num=True)
+            num_holes2 = num_islands2 - euler_number_converted
 
-                fom_island2 = sim_env.evaluate(array_original.flatten(), t_cur, flag_last=True)
+            fom_island2, _ = my_kwargs['simulation_'](
+                array_original.flatten(),
+                t_cur,
+                my_kwargs['exp_name'],
+                my_kwargs['prop_dir'],
+                my_kwargs['save_inter'],
+                my_kwargs['interval'],
+                flag_last=True
+            )
 
-                np.save('final.npy', array_converted_processed)
-                print('Array saved as final.npy.')
+            print("array 0,0: ", array_original[0,0], ' value')
+            print(f'fom (binarized): {fom}')
+            print(f'fom (island deleted): {fom_island}')
+            print(f'fom (final, binarized and island-deleted): {fom_island2}')
+            print(f'mfs (original): {min_feature_size}, mfs (converted): {min_feature_size2}')
+            print(f'islands (original): {num_islands1}, islands (converted): {num_islands2}')
+            print(f'holes (original): {num_holes1}, holes (converted): {num_holes2}')
 
-                # Get SAC agent and log path
-                agent = my_kwargs['sac_agent']
-                log_path = my_kwargs.get('sac_log_path', '')
-                save_name = 'sac_model_final.pt'
-                model_save_path = ''
+            # Save final design to log_dir
+            final_path = os.path.join(log_dir, 'final.npy')
+            np.save(final_path, array_converted_processed)
+            print(f'Array saved as {final_path}.')
 
-                # Save final model only in SAC training mode
-                if my_kwargs.get('sac_training', True):
-                    model_save_path = os.path.join(os.path.dirname(log_path) if log_path else '.', save_name)
-                    agent.save(model_save_path)
-                    print(f'Model saved to {model_save_path}')
+            # Save final images to log_dir
+            plt.figure()
+            plt.imshow(1 - x_image.squeeze(), cmap='gray')
+            plt.title(f'Final (fom={fom:.4f})')
+            plt.savefig(os.path.join(log_dir, 'final_binarized.png'))
+            plt.close()
 
-                # Write final results to log
-                if log_path:
-                    with open(log_path, 'a') as f:
-                        f.write(f"\n{'='*50}\n")
-                        f.write(f"=== FINAL RESULTS ===\n")
-                        f.write(f"fom (binarized): {fom_final}\n")
-                        f.write(f"fom (island deleted): {fom_island}\n")
-                        f.write(f"fom (final, binarized+island-deleted): {fom_island2}\n")
-                        f.write(f"mfs (original): {min_feature_size}\n")
-                        f.write(f"mfs (converted): {min_feature_size2}\n")
-                        f.write(f"islands (original): {num_islands1}\n")
-                        f.write(f"islands (converted): {num_islands2}\n")
-                        f.write(f"holes (original): {num_holes1}\n")
-                        f.write(f"holes (converted): {num_holes2}\n")
-                        f.write(f"euler_number (original): {euler_number_original}\n")
-                        f.write(f"euler_number (converted): {euler_number_converted}\n")
-                        if model_save_path:
-                            f.write(f"Model saved to: {model_save_path}\n")
-
-                # Save final images
-                hist_dir = os.path.join('figures', my_kwargs['exp_name'])
-                os.makedirs(hist_dir, exist_ok=True)
-                prefix = my_kwargs['guidance_type']
-                plt.figure()
-                plt.imshow(1 - x_image.squeeze(), cmap='gray')
-                plt.title(f'Final (fom={fom_final:.4f})')
-                plt.savefig(os.path.join(hist_dir, f'{prefix}_final_binarized.png'))
-                plt.close()
-
-                plt.figure()
-                plt.imshow(1 - array_original.squeeze(), cmap='gray')
-                plt.title(f'Final cleaned (fom={fom_island2:.4f})')
-                plt.savefig(os.path.join(hist_dir, f'{prefix}_final_cleaned.png'))
-                plt.close()
-
-            else:
-                # Original adjoint mode — results saved to log_dir
-                log_dir = my_kwargs['log_dir']
-                fom, sensitivity = my_kwargs['simulation_'](
-                    sample_bin_,
-                    t_cur,
-                    my_kwargs['exp_name'],
-                    my_kwargs['prop_dir'],
-                    my_kwargs['save_inter'],
-                    my_kwargs['interval'],
-                    flag_last=True
-                )
-                x_image = sample_bin_.reshape(64, 64, 1)
-                print('fom (final, after binarization): ', fom)
-
-                fig = plt.figure(figsize=(20,20))
-                plt.imshow(np.squeeze(np.abs(sensitivity.reshape(64, 64))))
-                plt.xlabel("x")
-                plt.ylabel("y")
-                plt.savefig(os.path.join(log_dir, 'sensitivity.png'))
-                plt.close()
-
-                island_deleted = delete_islands_with_size_1(x_image.copy())
-                min_feature_size, min_feature_label, labeled_array = find_minimum_feature_size(island_deleted)
-                
-                fom_island, _ = my_kwargs['simulation_'](
-                    island_deleted.flatten(),
-                    t_cur,
-                    my_kwargs['exp_name'],
-                    my_kwargs['prop_dir'],
-                    my_kwargs['save_inter'],
-                    my_kwargs['interval'],
-                    flag_last=True
-                )
-                
-                array_converted_processed = delete_islands_with_size_1(1-island_deleted.copy())
-                array_original = 1 - array_converted_processed
-                min_feature_size2, min_feature_label2, labeled_array2 = find_minimum_feature_size(array_converted_processed)
-                euler_number_original = euler_number(array_original, connectivity=1)
-                _, num_islands1 = label_(island_deleted, connectivity=1, return_num=True)
-                num_holes1 = num_islands1 - euler_number_original
-
-                euler_number_converted = euler_number(array_converted_processed, connectivity=1)
-                _, num_islands2 = label_(array_converted_processed, connectivity=1, return_num=True)
-                num_holes2 = num_islands2 - euler_number_converted
-
-                fom_island2, _ = my_kwargs['simulation_'](
-                    array_original.flatten(),
-                    t_cur,
-                    my_kwargs['exp_name'],
-                    my_kwargs['prop_dir'],
-                    my_kwargs['save_inter'],
-                    my_kwargs['interval'],
-                    flag_last=True
-                )
-
-                print("array 0,0: ", array_original[0,0], ' value')
-                print(f'fom (binarized): {fom}')
-                print(f'fom (island deleted): {fom_island}')
-                print(f'fom (final, binarized and island-deleted): {fom_island2}')
-                print(f'mfs (original): {min_feature_size}, mfs (converted): {min_feature_size2}')
-                print(f'islands (original): {num_islands1}, islands (converted): {num_islands2}')
-                print(f'holes (original): {num_holes1}, holes (converted): {num_holes2}')
-
-                # Save final design to log_dir
-                final_path = os.path.join(log_dir, 'final.npy')
-                np.save(final_path, array_converted_processed)
-                print(f'Array saved as {final_path}.')
-
-                # Save final images to log_dir
-                plt.figure()
-                plt.imshow(1 - x_image.squeeze(), cmap='gray')
-                plt.title(f'Final (fom={fom:.4f})')
-                plt.savefig(os.path.join(log_dir, 'final_binarized.png'))
-                plt.close()
-
-                plt.figure()
-                plt.imshow(1 - array_original.squeeze(), cmap='gray')
-                plt.title(f'Final cleaned (fom={fom_island2:.4f})')
-                plt.savefig(os.path.join(log_dir, 'final_cleaned.png'))
-                plt.close()
+            plt.figure()
+            plt.imshow(1 - array_original.squeeze(), cmap='gray')
+            plt.title(f'Final cleaned (fom={fom_island2:.4f})')
+            plt.savefig(os.path.join(log_dir, 'final_cleaned.png'))
+            plt.close()
 
         return {"sample": sample, "pred_xstart": out["pred_xstart"]}
 
@@ -1026,16 +795,16 @@ class GaussianDiffusion:
         :param model: the model module.
         :param shape: the shape of the samples, (N, C, H, W).
         :param noise: if specified, the noise from the encoder to sample.
-                      Should be of the same shape as `shape`.
+                  Should be of the same shape as `shape`.
         :param clip_denoised: if True, clip x_start predictions to [-1, 1].
         :param denoised_fn: if not None, a function which applies to the
             x_start prediction before it is used to sample.
         :param cond_fn: if not None, this is a gradient function that acts
-                        similarly to the model.
+                    similarly to the model.
         :param model_kwargs: if not None, a dict of extra keyword arguments to
             pass to the model. This can be used for conditioning.
         :param device: if specified, the device to create the samples on.
-                       If not specified, use a model parameter's device.
+                   If not specified, use a model parameter's device.
         :param progress: if True, show a tqdm progress bar.
         :return: a non-differentiable batch of samples.
         """
@@ -1095,69 +864,8 @@ class GaussianDiffusion:
             my_kwargs['simulation_'] = simulation_name(simulationlabel, my_kwargs['guidance_type'])
             print(my_kwargs['simulation_'])
 
-            if my_kwargs['guidance_type'] == 'sac':
-                if shape[0] != 1:
-                    raise ValueError(
-                        "SAC-guided diffusion currently requires batch_size=1 because the physics simulator "
-                        "evaluates one structure per trajectory."
-                    )
-
-                # --- SAC mode: initialize once, then reuse across sampling batches ---
-                if my_kwargs.get('sac_agent') is None:
-                    sac_device = device
-                    sac_agent = SACAgent(
-                        image_size=shape[2],  # e.g. 64
-                        patch_size=my_kwargs.get('sac_patch_size', 8),
-                        delta=my_kwargs.get('sac_delta', 0.1),
-                        lr=my_kwargs.get('sac_lr', 3e-4),
-                        gamma=my_kwargs.get('sac_gamma', 0.99),
-                        tau=0.005,
-                        alpha_lr=my_kwargs.get('sac_alpha_lr', 3e-4),
-                        buffer_size=my_kwargs.get('sac_buffer_size', 50000),
-                        batch_size=my_kwargs.get('sac_batch_size', 64),
-                        reward_scale=my_kwargs.get('sac_reward_scale', 1.0),
-                        device=sac_device,
-                    )
-                    if my_kwargs.get('sac_model_path', '') and os.path.exists(my_kwargs['sac_model_path']):
-                        sac_agent.load(my_kwargs['sac_model_path'])
-                        print(f"Loaded SAC model from {my_kwargs['sac_model_path']}")
-                    my_kwargs['sac_agent'] = sac_agent
-
-                if my_kwargs.get('sim_env') is None:
-                    my_kwargs['sim_env'] = SimEnvWrapper(
-                        sim_func=my_kwargs['simulation_'],
-                        exp_name=my_kwargs['exp_name'],
-                        prop_dir=my_kwargs['prop_dir'],
-                        save_inter=my_kwargs['save_inter'],
-                        interval=my_kwargs['interval'],
-                    )
-
-                my_kwargs['sac_training'] = my_kwargs.get('sac_training', True)
-
-                if my_kwargs.get('sac_log_path') is None:
-                    log_dir = my_kwargs.get('log_dir', './logs/sac')
-                    os.makedirs(log_dir, exist_ok=True)
-                    sac_log_path = os.path.join(log_dir, 'sac_log.txt')
-                    my_kwargs['sac_log_path'] = sac_log_path
-                    with open(sac_log_path, 'w') as f:
-                        f.write(f"=== SAC Guided Diffusion Sampling Log ===\n")
-                        f.write(f"sim_type: {my_kwargs['sim_type']}\n")
-                        f.write(f"prop_dir: {my_kwargs['prop_dir']}\n")
-                        f.write(f"sac_delta: {my_kwargs.get('sac_delta', 0.1)}\n")
-                        f.write(f"sac_patch_size: {my_kwargs.get('sac_patch_size', 8)}\n")
-                        f.write(f"sac_lr: {my_kwargs.get('sac_lr', 3e-4)}\n")
-                        f.write(f"sac_batch_size: {my_kwargs.get('sac_batch_size', 256)}\n")
-                        f.write(f"sac_training: {my_kwargs.get('sac_training', True)}\n")
-                        f.write(f"total_timesteps: {len(indices)}\n")
-                        f.write(f"={'='*50}\n")
-                    print(f"SAC log file: {sac_log_path}")
-
-                # Deferred transition state is per sampling trajectory.
-                my_kwargs['sac_pending_transition'] = None
-
-            else:
-                # Original adjoint mode — no wandb, results saved to log_dir
-                pass
+            # Original adjoint mode — no wandb, results saved to log_dir
+            pass
 
         for i in indices:
             t = th.tensor([i] * shape[0], device=device)

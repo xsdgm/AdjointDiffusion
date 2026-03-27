@@ -295,9 +295,9 @@ def waveguide_sim(struct_np, t, exp_name, prop_dir='top',
     fwidth = width * fcen
 
     if wideband:
-        # Cover 1.53 ~ 1.57 μm
+        # Cover 1.545 ~ 1.555 μm (7 frequency points)
         nf_wideband = 7
-        df_wideband = 1/1.53 - 1/1.57
+        df_wideband = 1/1.545 - 1/1.555
     else:
         nf_wideband = 1
         df_wideband = 0
@@ -472,10 +472,6 @@ def waveguide_sim_single(struct_np, t, exp_name, prop_dir='top',
                    save_inter, interval, flag_last, wideband=False)
 
 
-def waveguide_sim_wideband(struct_np, t, exp_name, prop_dir='top',
-                     save_inter=False, interval=1, flag_last=False):
-    return waveguide_sim(struct_np, t, exp_name, prop_dir,
-                   save_inter, interval, flag_last, wideband=True)
 
 
 def pbs_sim(struct_np, t, exp_name, prop_dir='top',
@@ -505,9 +501,9 @@ def pbs_sim(struct_np, t, exp_name, prop_dir='top',
 
     # Wideband vs single-wavelength
     if wideband:
-        # Cover 1.53 ~ 1.57 μm (7 frequency points) for better convergence
+        # Cover 1.545 ~ 1.555 μm (7 frequency points) for robust broadband coverage
         nf_wideband = 7
-        df_wideband = 1/1.53 - 1/1.57  # narrower frequency bandwidth
+        df_wideband = 1/1.545 - 1/1.555  # narrower frequency bandwidth
     else:
         # Single wavelength at 1.55 μm (original mode)
         nf_wideband = 1
@@ -676,9 +672,9 @@ def pbs_sim_single(struct_np, t, exp_name, prop_dir='top',
     return pbs_sim(struct_np, t, exp_name, prop_dir,
                    save_inter, interval, flag_last, wideband=False)
 
-
 def pbs_sim_wideband(struct_np, t, exp_name, prop_dir='top',
                      save_inter=False, interval=1, flag_last=False):
-    """PBS simulation with narrowed wideband (1.53-1.57 μm, 7 freq) — for SAC training."""
+    """PBS simulation with multiple wavelengths."""
     return pbs_sim(struct_np, t, exp_name, prop_dir,
                    save_inter, interval, flag_last, wideband=True)
+
