@@ -135,39 +135,73 @@ def plot_pbs_metrics(csv_path: str, out_dir: str) -> None:
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    # 设置全局样式，符合学术论文风格
+    plt.rcParams.update({
+        'font.size': 10,
+        'font.family': 'serif',
+        'font.serif': ['Times New Roman', 'DejaVu Serif'],
+        'axes.labelsize': 10,
+        'axes.titlesize': 10,
+        'legend.fontsize': 8,
+        'xtick.labelsize': 8,
+        'ytick.labelsize': 8,
+        'lines.linewidth': 1.5,
+        'figure.figsize': (6, 4.5),
+        'figure.dpi': 300,
+        'savefig.dpi': 300,
+        'savefig.format': 'png',
+        'savefig.bbox': 'tight',
+        'savefig.pad_inches': 0.1,
+        'axes.grid': True,
+        'grid.alpha': 0.3,
+        'grid.linestyle': ':',
+    })
+
+    # 定义颜色方案
+    colors = {
+        'te': '#1f77b4',  # 蓝色
+        'tm': '#ff7f0e',  # 橙色
+    }
+
     # Transmission spectra
-    plt.figure(figsize=(4.5, 3.2))
-    plt.plot(lam, t_front_te, label="T_front_TE")
-    plt.plot(lam, t_front_tm, label="T_front_TM")
-    plt.xlabel("Wavelength (um)")
+    plt.figure()
+    plt.plot(lam, t_front_te, label="TE", color=colors['te'], marker='o', markersize=4, markevery=5)
+    plt.plot(lam, t_front_tm, label="TM", color=colors['tm'], marker='s', markersize=4, markevery=5)
+    plt.xlabel("Wavelength (μm)")
     plt.ylabel("Transmission")
-    plt.legend(frameon=False, fontsize=8)
+    plt.xlim(lam.min(), lam.max())
+    plt.ylim(0, 1.05)
+    plt.legend(loc='best', frameon=True, framealpha=0.9)
     plt.tight_layout()
-    plt.savefig(out_dir / "pbs_transmission.png", dpi=300)
+    plt.savefig(out_dir / "pbs_transmission.png")
     plt.close()
 
     # Insertion loss
-    plt.figure(figsize=(4.5, 3.2))
-    plt.plot(lam, il_front_te, label="IL_front_TE (dB)")
-    plt.plot(lam, il_front_tm, label="IL_front_TM (dB)")
-    plt.axhline(3.0, color="gray", linestyle="--", linewidth=1)
-    plt.xlabel("Wavelength (um)")
+    plt.figure()
+    plt.plot(lam, il_front_te, label="TE", color=colors['te'], marker='o', markersize=4, markevery=5)
+    plt.plot(lam, il_front_tm, label="TM", color=colors['tm'], marker='s', markersize=4, markevery=5)
+    plt.axhline(3.0, color="gray", linestyle="--", linewidth=1, label="3 dB threshold")
+    plt.xlabel("Wavelength (μm)")
     plt.ylabel("Insertion Loss (dB)")
-    plt.legend(frameon=False, fontsize=8)
+    plt.xlim(lam.min(), lam.max())
+    plt.ylim(0, max(il_front_te.max(), il_front_tm.max()) * 1.1)
+    plt.legend(loc='best', frameon=True, framealpha=0.9)
     plt.tight_layout()
-    plt.savefig(out_dir / "pbs_insertion_loss.png", dpi=300)
+    plt.savefig(out_dir / "pbs_insertion_loss.png")
     plt.close()
 
     # Extinction ratio
-    plt.figure(figsize=(4.5, 3.2))
-    plt.plot(lam, er_te, label="ER_TE (dB)")
-    plt.plot(lam, er_tm, label="ER_TM (dB)")
-    plt.axhline(20.0, color="gray", linestyle="--", linewidth=1)
-    plt.xlabel("Wavelength (um)")
+    plt.figure()
+    plt.plot(lam, er_te, label="TE", color=colors['te'], marker='o', markersize=4, markevery=5)
+    plt.plot(lam, er_tm, label="TM", color=colors['tm'], marker='s', markersize=4, markevery=5)
+    plt.axhline(20.0, color="gray", linestyle="--", linewidth=1, label="20 dB threshold")
+    plt.xlabel("Wavelength (μm)")
     plt.ylabel("Extinction Ratio (dB)")
-    plt.legend(frameon=False, fontsize=8)
+    plt.xlim(lam.min(), lam.max())
+    plt.ylim(0, max(er_te.max(), er_tm.max()) * 1.1)
+    plt.legend(loc='best', frameon=True, framealpha=0.9)
     plt.tight_layout()
-    plt.savefig(out_dir / "pbs_extinction_ratio.png", dpi=300)
+    plt.savefig(out_dir / "pbs_extinction_ratio.png")
     plt.close()
 
     print(str(out_dir / "pbs_transmission.png"))
@@ -187,7 +221,7 @@ def evaluate_pbs_metrics(
     sample_index: int = 0,
     lam_min: float = 1.50,
     lam_max: float = 1.60,
-    nf: int = 11,
+    nf: int = 41,
 ):
     mp.verbosity(0)
 
@@ -296,6 +330,19 @@ def evaluate_pbs_metrics(
 
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
+    # --- 1. 原始结构仿真 --- 
+    evaluate_pbs_metrics(
+        npz_path="logs/sim-guided/pbs_tsr=100_class=0_eta=1/samples_1x64x64x1_bin.npz",
+        out_json="results/pbs/pbs_metrics_raw.json",
+        out_csv="results/pbs/pbs_metrics_raw.csv",
+        out_fig_dir="results/pbs/figures_raw",
+        sample_index=0,
+        lam_min=1.50,
+        lam_max=1.60,
+        nf=41,
+    )
+    
+    # --- 2. Polished 之后的仿真 --- 
     evaluate_pbs_metrics(
         npz_path="results/pbs/structure_polished/polished_structure.npz",
         out_json="results/pbs/pbs_metrics_polished.json",
@@ -304,5 +351,17 @@ if __name__ == "__main__":
         sample_index=0,
         lam_min=1.50,
         lam_max=1.60,
-        nf=11,
+        nf=41,
+    )
+    
+    # --- 3. Shapeopt 之后的仿真 --- 
+    evaluate_pbs_metrics(
+        npz_path="results/pbs/shape_opt/optimized_structure.npz",
+        out_json="results/pbs/pbs_metrics_shapeopt.json",
+        out_csv="results/pbs/pbs_metrics_shapeopt.csv",
+        out_fig_dir="results/pbs/figures_shapeopt",
+        sample_index=0,
+        lam_min=1.50,
+        lam_max=1.60,
+        nf=41,
     )

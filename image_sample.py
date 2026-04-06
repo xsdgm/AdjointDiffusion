@@ -99,7 +99,13 @@ def main():
             ]
             dist.all_gather(gathered_labels, classes)
             all_labels.extend([labels.cpu().numpy() for labels in gathered_labels])
-        logger.log(f"created {len(all_images) * args.batch_size} samples")
+        samples_created = len(all_images) * args.batch_size
+        logger.log(f"created {samples_created} samples")
+        # Log progress to CSV
+        logger.logkv("samples_created", samples_created)
+        logger.logkv("batch_size", args.batch_size)
+        logger.logkv("num_samples", args.num_samples)
+        logger.dumpkvs()
 
     arr = np.concatenate(all_images, axis=0)
     arr = arr[: args.num_samples]
