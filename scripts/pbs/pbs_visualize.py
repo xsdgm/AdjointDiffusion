@@ -1,3 +1,4 @@
+import argparse
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -69,6 +70,7 @@ def visualize_pbs_structure(
     design_size_um: float = 3.0,
     gds_layer: int = 1,
     gds_datatype: int = 0,
+    export_gds: bool = True,
 ) -> None:
     npz = np.load(npz_path)
     raw = npz["arr_0"][sample_index, :, :, 0]
@@ -98,26 +100,60 @@ def visualize_pbs_structure(
     plt.savefig(bin_path, dpi=300)
     plt.close()
 
-    _save_gds(
-        binary=binary.astype(bool),
-        gds_path=gds_path,
-        design_size_um=design_size_um,
-        layer=gds_layer,
-        datatype=gds_datatype,
-    )
+    if export_gds:
+        if gdstk is None:
+            print("Skipping GDS export because gdstk is not installed.")
+        else:
+            _save_gds(
+                binary=binary.astype(bool),
+                gds_path=gds_path,
+                design_size_um=design_size_um,
+                layer=gds_layer,
+                datatype=gds_datatype,
+            )
 
     print(gray_path.as_posix())
     print(bin_path.as_posix())
-    print(gds_path.as_posix())
+    if export_gds and gdstk is not None:
+        print(gds_path.as_posix())
+
+
+def create_argparser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Visualize PBS structures from a sampled NPZ file.")
+    parser.add_argument("--npz_path", type=str, required=True, help="Path to the sampled NPZ file.")
+    parser.add_argument("--out_dir", type=str, required=True, help="Directory to store visualization outputs.")
+    parser.add_argument("--sample_index", type=int, default=0, help="Sample index within the NPZ array.")
+    parser.add_argument(
+        "--threshold",
+        type=float,
+        default=0.5,
+        help="Threshold used to binarize the grayscale structure.",
+    )
+    parser.add_argument(
+        "--design_size_um",
+        type=float,
+        default=3.0,
+        help="Physical design size in micrometers for GDS export.",
+    )
+    parser.add_argument("--gds_layer", type=int, default=1, help="GDS layer index.")
+    parser.add_argument("--gds_datatype", type=int, default=0, help="GDS datatype.")
+    parser.add_argument(
+        "--no_gds",
+        action="store_true",
+        help="Skip GDS export and only generate raster visualizations.",
+    )
+    return parser
 
 
 if __name__ == "__main__":
+    args = create_argparser().parse_args()
     visualize_pbs_structure(
-        npz_path="logs/sim-guided/pbs_tsr=100_class=0_eta=1/samples_1x64x64x1_bin.npz",
-        out_dir="results/pbs/structure",
-        sample_index=0,
-        threshold=0.5,
-        design_size_um=3.0,
-        gds_layer=1,
-        gds_datatype=0,
+        npz_path=args.npz_path,
+        out_dir=args.out_dir,
+        sample_index=args.sample_index,
+        threshold=args.threshold,
+        design_size_um=args.design_size_um,
+        gds_layer=args.gds_layer,
+        gds_datatype=args.gds_datatype,
+        export_gds=not args.no_gds,
     )

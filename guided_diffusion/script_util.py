@@ -8,6 +8,22 @@ from .unet import SuperResModel, UNetModel, EncoderUNetModel
 NUM_CLASSES = 1000
 
 
+def _default_channel_mult(image_size):
+    if image_size % 2 == 1:
+        return (1,)
+    if image_size == 512:
+        return (0.5, 1, 1, 2, 2, 4, 4)
+    if image_size == 256:
+        return (1, 1, 2, 2, 4, 4)
+    if image_size == 128:
+        return (1, 1, 2, 3, 4)
+    if image_size == 64:
+        return (1, 2, 3, 4)
+    if image_size >= 16:
+        return (1, 2, 3)
+    raise ValueError(f"unsupported image size: {image_size}")
+
+
 def diffusion_defaults():
     """
     Defaults for image and classifier training.
@@ -29,7 +45,7 @@ def classifier_defaults():
     Defaults for classifier models.
     """
     return dict(
-        image_size=64,
+        image_size=128,
         classifier_use_fp16=False,
         classifier_width=128,
         classifier_depth=2,
@@ -45,7 +61,7 @@ def model_and_diffusion_defaults():
     Defaults for image training.
     """
     res = dict(
-        image_size=64,
+        image_size=128,
         num_channels=128,
         num_res_blocks=2,
         num_heads=4,
@@ -150,16 +166,7 @@ def create_model(
     gray_imgs=False ##### modified by sum: for admitting grayscale images #####
 ):
     if channel_mult == "":
-        if image_size == 512:
-            channel_mult = (0.5, 1, 1, 2, 2, 4, 4)
-        elif image_size == 256:
-            channel_mult = (1, 1, 2, 2, 4, 4)
-        elif image_size == 128:
-            channel_mult = (1, 1, 2, 3, 4)
-        elif image_size == 64:
-            channel_mult = (1, 2, 3, 4)
-        else:
-            raise ValueError(f"unsupported image size: {image_size}")
+        channel_mult = _default_channel_mult(image_size)
     else:
         channel_mult = tuple(int(ch_mult) for ch_mult in channel_mult.split(","))
 
@@ -239,16 +246,7 @@ def create_classifier(
     classifier_resblock_updown,
     classifier_pool,
 ):
-    if image_size == 512:
-        channel_mult = (0.5, 1, 1, 2, 2, 4, 4)
-    elif image_size == 256:
-        channel_mult = (1, 1, 2, 2, 4, 4)
-    elif image_size == 128:
-        channel_mult = (1, 1, 2, 3, 4)
-    elif image_size == 64:
-        channel_mult = (1, 2, 3, 4)
-    else:
-        raise ValueError(f"unsupported image size: {image_size}")
+    channel_mult = _default_channel_mult(image_size)
 
     attention_ds = []
     for res in classifier_attention_resolutions.split(","):

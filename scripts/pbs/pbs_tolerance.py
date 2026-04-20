@@ -15,6 +15,8 @@ from scipy import ndimage
 from skimage.morphology import disk, binary_erosion, binary_dilation
 from skimage.transform import resize
 
+from guided_diffusion.pbs_platform import get_pbs_platform_config
+
 # reuse simulation functions from pbs_metrics
 from pbs_metrics import _build_sim, _run_flux
 
@@ -91,12 +93,15 @@ def run_tolerance_sweep(
     lam_min: float = 1.50,
     lam_max: float = 1.60,
     nf: int = 11,
+    platform: str = "soi",
 ):
     if deltas_nm is None:
         deltas_nm = [-20, -15, -10, -5, 0, 5, 10, 15, 20]
 
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
+
+    cfg = get_pbs_platform_config(platform)
 
     npz = np.load(npz_path)
     struct_orig = npz["arr_0"][sample_index, :, :, 0].astype("float32") / 255.0
@@ -113,16 +118,20 @@ def run_tolerance_sweep(
     for delta in deltas_nm:
         print(f"\n--- delta = {delta:+d} nm ---")
 
-        struct = apply_fabrication_error(struct_orig, delta)
+        struct = apply_fabrication_error(
+            struct_orig,
+            delta,
+            design_size_um=cfg.design_region_size_um,
+        )
         si_ratio = float(struct.sum()) / struct.size
 
         # run TE simulation
-        sim_te = _build_sim(struct, "TE", fcen, df)
-        freqs, src_te, top_te, bottom_te = _run_flux(sim_te, fcen, df, nf)
+        sim_te = _build_sim(struct, "TE", fcen, df, platform=cfg.name)
+        freqs, src_te, top_te, bottom_te = _run_flux(sim_te, fcen, df, nf, platform=cfg.name, pol="TE")
 
         # run TM simulation
-        sim_tm = _build_sim(struct, "TM", fcen, df)
-        _, src_tm, top_tm, bottom_tm = _run_flux(sim_tm, fcen, df, nf)
+        sim_tm = _build_sim(struct, "TM", fcen, df, platform=cfg.name)
+        _, src_tm, top_tm, bottom_tm = _run_flux(sim_tm, fcen, df, nf, platform=cfg.name, pol="TM")
 
         lam = 1.0 / freqs
 
@@ -150,6 +159,8 @@ def run_tolerance_sweep(
 
         result = {
             "delta_nm": delta,
+            "platform": cfg.name,
+            "simulation_dim": cfg.simulation_dim,
             "si_ratio": si_ratio,
             "peak_T_TE": float(np.max(t_te)),
             "peak_T_TM": float(np.max(t_tm)),

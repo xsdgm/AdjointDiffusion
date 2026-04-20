@@ -2,104 +2,65 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 import meep as mp
+import meep.adjoint as mpa
 import numpy as np
 
+from guided_diffusion.pbs_builder import (
+    build_pbs_simulation,
+    get_pbs_dominant_component,
+)
+from guided_diffusion.pbs_platform import get_pbs_platform_config
 
-def run_pbs_field(npz_path: str, out_dir: str, sample_index: int = 0, pol: str = "TE"):
+
+def run_pbs_field(
+    npz_path: str,
+    out_dir: str,
+    sample_index: int = 0,
+    pol: str = "TE",
+    platform: str = "soi",
+):
     mp.verbosity(0)
+    cfg = get_pbs_platform_config(platform)
 
     npz = np.load(npz_path)
     struct = npz["arr_0"][sample_index, :, :, 0].astype("float32") / 255.0
 
-    Si = mp.Medium(index=3.4)
-    SiO2 = mp.Medium(index=1.44)
+    fcen = 1 / cfg.wavelength_um
+    sim_data = build_pbs_simulation(mp, mpa, struct, pol, platform=cfg.name)
+    sim = sim_data["sim"]
 
-    resolution = 21
-    Sx = 10
-    Sy = 10
-    cell_size = mp.Vector3(Sx, Sy)
-    pml_layers = [mp.PML(2.0)]
-
-    fcen = 1 / 1.55
-    width = 0.2
-    fwidth = width * fcen
-
-    source_center = [-2.7, 0, 0]
-    source_size = mp.Vector3(0, 2, 0)
-    kpoint = mp.Vector3(1, 0, 0)
-
-    Nx = 64
-    Ny = 64
-
-    parity = mp.ODD_Z if pol == "TE" else mp.EVEN_Z
-    src = mp.GaussianSource(frequency=fcen, fwidth=fwidth)
-    sources = [
-        mp.EigenModeSource(
-            src,
-            eig_parity=parity,
-            eig_band=1,
-            direction=mp.NO_DIRECTION,
-            eig_kpoint=kpoint,
-            size=source_size,
-            center=source_center,
-        )
-    ]
-
-    design_variables = mp.MaterialGrid(
-        mp.Vector3(Nx, Ny), SiO2, Si, grid_type="U_MEAN"
-    )
-    design_variables.update_weights(struct.flatten())
-    design_region = mp.Volume(center=mp.Vector3(), size=mp.Vector3(3, 3, 0))
-
-    y_offset = 0.8
-    wg_width = 0.5
-
-    geometry = [
-        mp.Block(
-            center=mp.Vector3(x=-Sx / 4), material=Si, size=mp.Vector3(Sx / 2, 1, 0)
-        ),
-        mp.Block(
-            center=mp.Vector3(x=Sx / 4, y=y_offset), material=Si, size=mp.Vector3(Sx / 2, wg_width, 0)
-        ),
-        mp.Block(
-            center=mp.Vector3(x=Sx / 4, y=-y_offset), material=Si, size=mp.Vector3(Sx / 2, wg_width, 0)
-        ),
-        mp.Block(
-            center=design_region.center, size=design_region.size, material=design_variables
-        ),
-    ]
-
-    sim = mp.Simulation(
-        cell_size=cell_size,
-        boundary_layers=pml_layers,
-        geometry=geometry,
-        sources=sources,
-        eps_averaging=True,
-        subpixel_tol=1e-4,
-        resolution=resolution,
-    )
-
-    dft_components = [mp.Ez] if pol == "TE" else [mp.Ex, mp.Ey]
+    dominant_component = get_pbs_dominant_component(mp, cfg, pol)
+    if cfg.simulation_dim == 3:
+        dft_components = [mp.Ex, mp.Ey, mp.Ez]
+        dft_size = mp.Vector3(cfg.cell_size_x, cfg.cell_size_y, 0)
+    else:
+        dft_components = [dominant_component] if pol == "TE" else [mp.Ex, mp.Ey]
+        dft_size = mp.Vector3(cfg.cell_size_x, cfg.cell_size_y, cfg.cell_size_z)
     dft_obj = sim.add_dft_fields(
-        dft_components, fcen, 0, 1, center=mp.Vector3(), size=cell_size
+        dft_components, fcen, 0, 1, center=mp.Vector3(), size=dft_size
     )
 
-    decay_component = mp.Ez if pol == "TE" else mp.Ex
+    decay_component = dominant_component
     sim.run(
         until_after_sources=mp.stop_when_fields_decayed(
             50, decay_component, mp.Vector3(), 1e-7
         )
     )
 
-    if pol == "TE":
+    if cfg.simulation_dim == 3:
+        ex = sim.get_dft_array(dft_obj, mp.Ex, 0)
+        ey = sim.get_dft_array(dft_obj, mp.Ey, 0)
         ez = sim.get_dft_array(dft_obj, mp.Ez, 0)
-        field = np.abs(ez)
-        field_label = "|Ez|"
+        field = np.sqrt(np.abs(ex) ** 2 + np.abs(ey) ** 2 + np.abs(ez) ** 2)
+        field_label = "|E| @ z=0"
+        cmap = "inferno"
+    elif pol == "TE":
+        field = np.abs(sim.get_dft_array(dft_obj, dominant_component, 0))
+        field_label = f"|{cfg.dominant_field_te}|"
         cmap = "inferno"
     else:
         ex = sim.get_dft_array(dft_obj, mp.Ex, 0)
         ey = sim.get_dft_array(dft_obj, mp.Ey, 0)
-        # TM has in-plane electric field; plot magnitude for a stable view.
         field = np.sqrt(np.abs(ex) ** 2 + np.abs(ey) ** 2)
         field_label = "|E|"
         cmap = "inferno"
@@ -135,4 +96,3 @@ if __name__ == "__main__":
         sample_index=0,
         pol="TM",
     )
-

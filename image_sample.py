@@ -29,6 +29,7 @@ def main():
         'sim_guided': args.sim_guided,
         'eta': args.eta,
         'exp_name': os.path.basename(args.log_dir),
+        'log_dir': args.log_dir,
         'prop_dir': args.prop_dir,
         'save_inter': args.save_inter,
         'interval': args.interval,
@@ -40,8 +41,9 @@ def main():
         'sim_type': args.sim_type,
         'tsr': args.tsr,
         'manual_class_id': args.manual_class_id,
+        'pbs_platform': args.pbs_platform,
     }
-    print("my_kwargs: ", my_kwargs)
+    logger.log(f"sampling kwargs: {my_kwargs}")
     
     if not args.gpu_id == '':
         logger.log("using device %s" % args.gpu_id)
@@ -75,7 +77,7 @@ def main():
                     low=0, high=args.num_classes, size=(args.batch_size,), device=dist_util.dev()
                 )
             model_kwargs["y"] = classes
-            print("classes: ", classes)
+            logger.log(f"classes: {classes.tolist()}")
         sample_fn = (
             diffusion.p_sample_loop if not args.use_ddim else diffusion.ddim_sample_loop
         )
@@ -84,6 +86,7 @@ def main():
             (args.batch_size, 3 if not args.gray_imgs else 1, args.image_size, args.image_size),
             clip_denoised=args.clip_denoised,
             model_kwargs=model_kwargs,
+            progress=args.show_progress,
             my_kwargs=my_kwargs
         )
         sample = ((sample + 1) * 127.5).clamp(0, 255).to(th.uint8)
@@ -153,7 +156,9 @@ def create_argparser():
         stoptime=0.0,
         use_adjgrad_norm = False,
         sim_type = 'waveguide',
-        tsr=100
+        tsr=200,
+        pbs_platform='soi',
+        show_progress=True,
     )
     defaults.update(model_and_diffusion_defaults())
     parser = argparse.ArgumentParser()

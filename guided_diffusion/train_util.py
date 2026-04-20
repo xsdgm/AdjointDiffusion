@@ -40,6 +40,7 @@ class TrainLoop:
         schedule_sampler=None,
         weight_decay=0.0,
         lr_anneal_steps=0,
+        print_fom=False,
     ):
         self.model = model
         self.diffusion = diffusion
@@ -60,9 +61,11 @@ class TrainLoop:
         self.schedule_sampler = schedule_sampler or UniformSampler(diffusion)
         self.weight_decay = weight_decay
         self.lr_anneal_steps = lr_anneal_steps
+        self.print_fom = print_fom
 
         self.step = 0
         self.resume_step = 0
+        self.last_step_loss = None
         self.global_batch = self.batch_size * dist.get_world_size()
 
         self.sync_cuda = th.cuda.is_available()
@@ -176,7 +179,7 @@ class TrainLoop:
             self.save()
 
     def run_step(self, batch, cond):
-        self.forward_backward(batch, cond)
+        self.last_step_loss = self.forward_backward(batch, cond)
         took_step = self.mp_trainer.optimize(self.opt)
         if took_step:
             self._update_ema()
@@ -185,6 +188,8 @@ class TrainLoop:
 
     def forward_backward(self, batch, cond):
         self.mp_trainer.zero_grad()
+        step_loss_sum = 0.0
+        step_count = 0
         for i in range(0, batch.shape[0], self.microbatch):
             micro = batch[i : i + self.microbatch].to(dist_util.dev())
             micro_cond = {
@@ -214,10 +219,13 @@ class TrainLoop:
                 )
 
             loss = (losses["loss"] * weights).mean()
+            step_loss_sum += loss.detach().item() * micro.shape[0]
+            step_count += micro.shape[0]
             log_loss_dict(
                 self.diffusion, t, {k: v * weights for k, v in losses.items()}
             )
             self.mp_trainer.backward(loss)
+        return step_loss_sum / max(step_count, 1)
 
     def _update_ema(self):
         for rate, params in zip(self.ema_rate, self.ema_params):
@@ -234,6 +242,9 @@ class TrainLoop:
     def log_step(self):
         logger.logkv("step", self.step + self.resume_step)
         logger.logkv("samples", (self.step + self.resume_step + 1) * self.global_batch)
+        if self.print_fom and self.last_step_loss is not None:
+            # Proxy FoM during training: larger is better, so we log negative loss.
+            logger.logkv("fom", -float(self.last_step_loss))
 
     def save(self):
         def save_checkpoint(rate, params):

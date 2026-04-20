@@ -6,6 +6,7 @@ Docstrings have been added, as well as DDIM sampling and a new collection of bet
 """
 
 import enum
+import functools
 import math
 
 import numpy as np
@@ -29,6 +30,8 @@ from skimage.measure import label as label_
 
 
 from guided_diffusion.simulation import CIS_sim, waveguide_sim, pbs_sim
+from .pbs_platform import get_pbs_platform_config
+from . import logger
 
 
 # log handler
@@ -68,6 +71,10 @@ def load_lists(filename='lists.pkl'):
         with open(filename, 'rb') as f:
             return pickle.load(f)
     return [], [], []
+
+
+def _log_sampling_status(message):
+    logger.log(message)
 
 
 # Function to delete every island with size 1
@@ -611,7 +618,8 @@ class GaussianDiffusion:
                     xt = x.detach().clone().requires_grad_(True)
                     if x0hat_test:
                         print("x0hat test mode...")
-                        x0hat_jacobian_xt = th.zeros(4096, 4096).to(x.device)
+                        flat_dim = xt[0].numel()
+                        x0hat_jacobian_xt = th.zeros(flat_dim, flat_dim).to(x.device)
                     else:
                         x0hat_jacobian_xt = th.autograd.functional.jacobian(x0hat_from_xt, xt)
                         
@@ -639,25 +647,36 @@ class GaussianDiffusion:
                 
                 if my_kwargs['use_normed_grad']:
                     max_grad_values = xt_grad.abs().amax(dim=(1,2,3)).view(-1, 1, 1, 1)
+                    max_grad_values = th.clamp(max_grad_values, min=1e-12)
                     xt_grad = xt_grad / max_grad_values
                 
                 if my_kwargs['use_adjgrad_norm']:
                     eta = eta/adjgrad_norm 
 
                 end = time()
-                print('time elapsed:', end-start)
-                print('eta:', eta)
-                print(f'fom at step {wandb.config.tsr-t_cur}: ', fom)
-                print('adjgrad_norm:', adjgrad_norm)
-                print('xtgrad_norm:', xtgrad_norm)
+                step_id = wandb.config.tsr - t_cur
+                _log_sampling_status(
+                    f"[sampling] step={step_id} elapsed={end-start:.2f}s "
+                    f"eta={eta:.6g} fom={float(fom):.6g} "
+                    f"adjgrad_norm={adjgrad_norm:.6g} xtgrad_norm={xtgrad_norm:.6g}"
+                )
                 
                 x_ = 1-x
+                if my_kwargs.get('save_inter', False) and t_cur % my_kwargs.get('interval', 1) == 0:
+                    csv_path = os.path.join(my_kwargs.get('log_dir', '.'), "intermediate_steps.csv")
+                    file_exists = os.path.isfile(csv_path)
+                    with open(csv_path, 'a', newline='') as f:
+                        import csv
+                        writer = csv.writer(f)
+                        if not file_exists:
+                            writer.writerow(['step', 'fom', 'eta', 'adjgrad_norm', 'xtgrad_norm'])
+                        writer.writerow([wandb.config.tsr-t_cur, fom, eta, adjgrad_norm, xtgrad_norm])
+                        
                 wandb.log({
                     'fom': fom,
                     'eta': eta,
                     'adjgrad_norm': adjgrad_norm,
                     'xtgrad_norm': xtgrad_norm,
-                    "generated": [wandb.Image(th.squeeze(x_.detach().cpu()).numpy(), caption='step_'+str(wandb.config.tsr-t_cur)+'_fom_'+str(fom)[:5])]
                 }, step=wandb.config.tsr-t_cur)
 
             elif my_kwargs['guidance_type'] == 'dds':
@@ -674,6 +693,7 @@ class GaussianDiffusion:
                 
                 if my_kwargs['use_normed_grad']:
                     max_grad_values = adjoint_gradient.abs().amax(dim=(1,2,3)).view(-1, 1, 1, 1)
+                    max_grad_values = th.clamp(max_grad_values, min=1e-12)
                     adjoint_gradient = adjoint_gradient / max_grad_values
                 
                 out["pred_xstart"] = (0.5 * out["pred_xstart"] + 0.5) + eta * adjoint_gradient
@@ -684,22 +704,33 @@ class GaussianDiffusion:
                 )
                 
                 end = time()
-                print('time elapsed:', end-start)
                 if my_kwargs['use_adjgrad_norm']:
                     eta = eta/adjgrad_norm 
-                print('eta:', eta)
-                print(f'fom at step {wandb.config.tsr-t_cur}: ', fom)
-                print('adjgrad_norm:', adjgrad_norm)
+                step_id = wandb.config.tsr - t_cur
+                _log_sampling_status(
+                    f"[sampling] step={step_id} elapsed={end-start:.2f}s "
+                    f"eta={eta:.6g} fom={float(fom):.6g} "
+                    f"adjgrad_norm={adjgrad_norm:.6g}"
+                )
                 
                 x_ = 1-x
+                if my_kwargs.get('save_inter', False) and t_cur % my_kwargs.get('interval', 1) == 0:
+                    csv_path = os.path.join(my_kwargs.get('log_dir', '.'), "intermediate_steps.csv")
+                    file_exists = os.path.isfile(csv_path)
+                    with open(csv_path, 'a', newline='') as f:
+                        import csv
+                        writer = csv.writer(f)
+                        if not file_exists:
+                            writer.writerow(['step', 'fom', 'eta', 'adjgrad_norm'])
+                        writer.writerow([wandb.config.tsr-t_cur, fom, eta, adjgrad_norm])
+                        
                 wandb.log({
                     'fom': fom,
                     'eta': eta,
                     'adjgrad_norm': adjgrad_norm,
-                    "generated": [wandb.Image(th.squeeze(x_.detach().cpu()).numpy(), caption='step_'+str(wandb.config.tsr-t_cur)+'_fom_'+str(fom)[:5])]
                 }, step=wandb.config.tsr-t_cur)
                 
-            if t_cur % my_kwargs['interval'] == 0:
+            if False and t_cur % my_kwargs.get('interval', 1) == 0:
                 hist_dir = os.path.join('figures', my_kwargs['exp_name'])
                 os.makedirs(hist_dir, exist_ok=True)
                 plt.figure()
@@ -716,12 +747,15 @@ class GaussianDiffusion:
                 plt.close()
                     
         sample = out["mean"] + nonzero_mask * th.exp(0.5 * out["log_variance"]) * noise + eta * xt_grad
+        sample = th.nan_to_num(sample, nan=0.0, posinf=1.0, neginf=-1.0).clamp(-1, 1)
         
         if t_cur == 0:
             sample_bin = sample.detach().clone().cpu().numpy() * 0.5 + 0.5
             sample_bin_ = sample_bin
             sample_bin_[sample_bin_ > 0.5] = 1.0
             sample_bin_[sample_bin_ <= 0.5] = 0.0
+            spatial_shape = tuple(sample_bin_.shape[-2:])
+            image_height, image_width = spatial_shape
             fom, sensitivity = my_kwargs['simulation_'](
                 sample_bin_,
                 t_cur,
@@ -731,14 +765,15 @@ class GaussianDiffusion:
                 my_kwargs['interval'],
                 flag_last=True
             )
-            x_image = sample_bin_.reshape(64, 64, 1)
-            print('fom (final, after binarization): ', fom)
+            x_image = np.moveaxis(sample_bin_[0], 0, -1)
+            _log_sampling_status(f"[sampling] final_binarized_fom={float(fom):.6g}")
 
             fig = plt.figure(figsize=(20,20))
-            plt.imshow(np.squeeze(np.abs(sensitivity.reshape(64, 64))))
+            plt.imshow(np.squeeze(np.abs(sensitivity.reshape(spatial_shape))))
             plt.xlabel("x")
             plt.ylabel("y")
-            plt.savefig("sensitivity.png")
+            sensitivity_path = os.path.join(my_kwargs["log_dir"], "sensitivity.png")
+            plt.savefig(sensitivity_path)
             cmap = plt.cm.get_cmap()
             colormapping = plt.cm.ScalarMappable(cmap=cmap)
             cbar = fig.colorbar(colormapping, ax=plt.gca())
@@ -817,8 +852,9 @@ class GaussianDiffusion:
                 'euler_number with 1 connectivity (converted)': euler_number_converted,
             })
 
-            np.save('final.npy', array_converted_processed)
-            print('Array saved as final.npy.')
+            final_array_path = os.path.join(my_kwargs["log_dir"], "final.npy")
+            np.save(final_array_path, array_converted_processed)
+            print(f"Array saved as {final_array_path}.")
 
             if my_kwargs['sim_type'] == "CIS_sim":
                 red_list, blue_list, green_list = load_lists()
@@ -922,7 +958,12 @@ class GaussianDiffusion:
             assert my_kwargs['sim_type'] in ['CIS', 'waveguide', 'pbs']
             simulationlabel = my_kwargs['sim_type'] + '_sim'
             my_kwargs['simulation_'] = simulation_name(simulationlabel)
-            print(my_kwargs['simulation_'])
+            if my_kwargs['sim_type'] == 'pbs':
+                my_kwargs['simulation_'] = functools.partial(
+                    my_kwargs['simulation_'],
+                    platform=my_kwargs.get('pbs_platform', 'soi'),
+                )
+            _log_sampling_status(f"simulation backend: {my_kwargs['simulation_']}")
             wandb.init(project=simulationlabel+"_diffusion")
             wandb.run.name = "class"+str(my_kwargs['manual_class_id'])+"_eta"+str(my_kwargs['eta'])+"_tsr"+str(my_kwargs['tsr'])
 
@@ -930,6 +971,8 @@ class GaussianDiffusion:
             'eta': my_kwargs['eta'],
             'tsr': len(indices),
             'class': model_kwargs['y'][0].item() if model_kwargs is not None and 'y' in model_kwargs else None,
+            'pbs_platform': my_kwargs.get('pbs_platform', 'soi'),
+            'pbs_dim': get_pbs_platform_config(my_kwargs.get('pbs_platform', 'soi')).simulation_dim,
         }
         wandb.config.update(cfg)
 

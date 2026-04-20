@@ -164,6 +164,10 @@ If you have multiple structural conditions (e.g., different fabrication constrai
 ```
 
 - Alternatively: run `02-sample.ipynb`
+- For PBS inverse design, the sampling script now supports `PBS_PLATFORM=soi` and `PBS_PLATFORM=tfln`. Example:
+```bash
+PBS_PLATFORM=tfln ./01-sample.sh
+```
 - Note: Set `--class_cond` to `False` if your dataset contains only a single structural condition (i.e., no class conditioning needed).
 If you have multiple structural conditions (e.g., different fabrication constraints), set it to `True` to enable class-conditional training.
 - Note: We recommend to use the model where the name is `ema_0.9999_*.pt`. The number in `*` means the training step number. `ema` is for `Exponential Moving Average`.
@@ -283,13 +287,20 @@ We visualize the performance of AdjointDiffusion across different tasks and conf
 
 ```
 AdjointDiffusion/
-├── dataset_generation.py       # Dataset generation script
-├── image_train.py              # Main training script
-├── image_sample.py             # Main sampling script
-├── requirements.txt            # Python dependencies
-├── guided_diffusion/           # Backend of diffusion models
-└── baseline_algorithms/        # Baseline algorithms (nlopt, Gradient Ascent)
+├── dataset_generation.py       # Dataset generation entrypoint
+├── image_train.py              # Main training entrypoint
+├── image_sample.py             # Main sampling entrypoint
+├── guided_diffusion/           # Core diffusion and simulation code
+├── scripts/
+│   ├── pbs/                    # PBS-specific utilities and evaluations
+│   └── plotting/               # Plotting helpers for logs and optimization traces
+├── baseline_algorithms/        # Baseline algorithms (nlopt, Gradient Ascent)
+├── logs/                       # Generated training / sampling runs
+├── figures/                    # Generated figures
+└── results/                    # Generated PBS artifacts
 ```
+
+Generated artifacts, caches, datasets, and local editor files are ignored via `.gitignore` so the repository root stays focused on source code.
 
 ---
 

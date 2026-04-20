@@ -3,104 +3,68 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 import meep as mp
+import meep.adjoint as mpa
 import numpy as np
+
+from guided_diffusion.pbs_builder import (
+    build_pbs_simulation,
+    get_pbs_dominant_component,
+    get_transverse_port_layout,
+)
+from guided_diffusion.pbs_platform import get_pbs_platform_config
 
 
 # ---------------------------------------------------------------------------
 # Simulation helpers
 # ---------------------------------------------------------------------------
 
-def _build_sim(struct, pol, fcen, fwidth, resolution=21):
-    Si = mp.Medium(index=3.4)
-    SiO2 = mp.Medium(index=1.44)
-
-    Sx = 10
-    Sy = 10
-    cell_size = mp.Vector3(Sx, Sy)
-    pml_layers = [mp.PML(2.0)]
-
-    source_center = [-2.7, 0, 0]
-    source_size = mp.Vector3(0, 2, 0)
-    kpoint = mp.Vector3(1, 0, 0)
-
-    Nx = 64
-    Ny = 64
-
-    # Output waveguide parameters
-    y_offset = 0.8
-    wg_width = 0.5
-
-    parity = mp.ODD_Z if pol == "TE" else mp.EVEN_Z
-    src = mp.GaussianSource(frequency=fcen, fwidth=fwidth)
-    sources = [
-        mp.EigenModeSource(
-            src,
-            eig_parity=parity,
-            eig_band=1,
-            direction=mp.NO_DIRECTION,
-            eig_kpoint=kpoint,
-            size=source_size,
-            center=source_center,
-        )
-    ]
-
-    design_variables = mp.MaterialGrid(
-        mp.Vector3(Nx, Ny), SiO2, Si, grid_type="U_MEAN"
+def _build_sim(struct, pol, fcen, fwidth, resolution=21, platform="soi"):
+    cfg = get_pbs_platform_config(platform)
+    sim_data = build_pbs_simulation(
+        mp,
+        mpa,
+        struct,
+        pol,
+        platform=cfg.name,
+        fcen=fcen,
+        fwidth=fwidth,
     )
-    design_variables.update_weights(struct.flatten())
-    design_region = mp.Volume(center=mp.Vector3(), size=mp.Vector3(3, 3, 0))
-
-    geometry = [
-        mp.Block(
-            center=mp.Vector3(x=-Sx / 4), material=Si, size=mp.Vector3(Sx / 2, 1, 0)
-        ), # Input waveguide
-        mp.Block(
-            center=mp.Vector3(x=Sx / 4, y=y_offset), material=Si, size=mp.Vector3(Sx / 2, wg_width, 0)
-        ), # Output waveguide TE (top)
-        mp.Block(
-            center=mp.Vector3(x=Sx / 4, y=-y_offset), material=Si, size=mp.Vector3(Sx / 2, wg_width, 0)
-        ), # Output waveguide TM (bottom)
-        mp.Block(
-            center=design_region.center, size=design_region.size, material=design_variables
-        ),
-    ]
-
-    sim = mp.Simulation(
-        cell_size=cell_size,
-        boundary_layers=pml_layers,
-        geometry=geometry,
-        sources=sources,
-        eps_averaging=True,
-        subpixel_tol=1e-4,
-        resolution=resolution,
-    )
-
-    return sim
+    return sim_data["sim"]
 
 
-def _run_flux(sim, fcen, df, nf):
+def _run_flux(sim, fcen, df, nf, platform="soi", pol="TE"):
+    cfg = get_pbs_platform_config(platform)
+    layout = get_transverse_port_layout(cfg)
     source_flux = sim.add_flux(
         fcen,
         df,
         nf,
-        mp.FluxRegion(center=mp.Vector3(-2.5, 0, 0), size=mp.Vector3(y=2)),
+        mp.FluxRegion(
+            center=mp.Vector3(cfg.monitor_x_in, layout["input_center_y"], 0),
+            size=mp.Vector3(0, layout["input_monitor_span_y"], cfg.monitor_span_z),
+        ),
     )
-    # Output waveguide TE (top), y=0.8
     top_flux = sim.add_flux(
         fcen,
         df,
         nf,
-        mp.FluxRegion(center=mp.Vector3(2.5, 0.8, 0), size=mp.Vector3(y=1.0)),
+        mp.FluxRegion(
+            center=mp.Vector3(cfg.monitor_x_out, layout["output_center_y"], 0),
+            size=mp.Vector3(0, layout["output_monitor_span_y"], cfg.monitor_span_z),
+        ),
     )
-    # Output waveguide TM (bottom), y=-0.8
     bottom_flux = sim.add_flux(
         fcen,
         df,
         nf,
-        mp.FluxRegion(center=mp.Vector3(2.5, -0.8, 0), size=mp.Vector3(y=1.0)),
+        mp.FluxRegion(
+            center=mp.Vector3(cfg.monitor_x_out, -layout["output_center_y"], 0),
+            size=mp.Vector3(0, layout["output_monitor_span_y"], cfg.monitor_span_z),
+        ),
     )
 
-    sim.run(until_after_sources=mp.stop_when_fields_decayed(50, mp.Ez, mp.Vector3(), 1e-7))
+    decay_component = get_pbs_dominant_component(mp, cfg, pol)
+    sim.run(until_after_sources=mp.stop_when_fields_decayed(50, decay_component, mp.Vector3(), 1e-7))
 
     src = np.array(mp.get_fluxes(source_flux))
     top = np.array(mp.get_fluxes(top_flux))
@@ -188,8 +152,10 @@ def evaluate_pbs_metrics(
     lam_min: float = 1.50,
     lam_max: float = 1.60,
     nf: int = 11,
+    platform: str = "soi",
 ):
     mp.verbosity(0)
+    cfg = get_pbs_platform_config(platform)
 
     npz = np.load(npz_path)
     struct = npz["arr_0"][sample_index, :, :, 0].astype("float32") / 255.0
@@ -199,11 +165,11 @@ def evaluate_pbs_metrics(
     fcen = 0.5 * (fmin + fmax)
     df = fmax - fmin
 
-    sim_te = _build_sim(struct, "TE", fcen, df)
-    freqs, src_te, top_te, bottom_te = _run_flux(sim_te, fcen, df, nf)
+    sim_te = _build_sim(struct, "TE", fcen, df, platform=cfg.name)
+    freqs, src_te, top_te, bottom_te = _run_flux(sim_te, fcen, df, nf, platform=cfg.name, pol="TE")
 
-    sim_tm = _build_sim(struct, "TM", fcen, df)
-    _, src_tm, top_tm, bottom_tm = _run_flux(sim_tm, fcen, df, nf)
+    sim_tm = _build_sim(struct, "TM", fcen, df, platform=cfg.name)
+    _, src_tm, top_tm, bottom_tm = _run_flux(sim_tm, fcen, df, nf, platform=cfg.name, pol="TM")
 
     lam = 1.0 / freqs
 
@@ -237,6 +203,9 @@ def evaluate_pbs_metrics(
     results = {
         "npz_path": str(npz_path),
         "sample_index": sample_index,
+        "platform": cfg.name,
+        "simulation_dim": cfg.simulation_dim,
+        "crystal_cut": cfg.crystal_cut,
         "lambda_um": lam.tolist(),
         "T_front_TE": t_front_te.tolist(),
         "T_front_TM": t_front_tm.tolist(),

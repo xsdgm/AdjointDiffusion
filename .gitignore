@@ -1,0 +1,26 @@
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Local editor / tooling
+.vscode/
+.codex
+
+# Experiment artifacts
+logs/
+figures/
+results/
+
+# Generated datasets
+datasets/
+
+# Run-specific root artifacts
+final.npy
+sensitivity.png
+progress.csv
+log.txt
+lists.pkl
+
+# OS files
+.DS_Store

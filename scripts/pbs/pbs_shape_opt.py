@@ -15,6 +15,13 @@ from scipy.ndimage import distance_transform_edt
 import meep as mp
 import meep.adjoint as mpa
 
+from guided_diffusion.pbs_builder import (
+    build_pbs_ports,
+    build_pbs_simulation,
+    resize_gradient_to_structure_grid,
+)
+from guided_diffusion.pbs_platform import get_pbs_platform_config
+
 
 # ---------------------------------------------------------------------------
 # Level Set utilities
@@ -45,35 +52,22 @@ def compute_boundary_mask(phi: np.ndarray, band_width: float = 3.0) -> np.ndarra
 # PBS adjoint simulation (adapted from pbs_sim in simulation.py)
 # ---------------------------------------------------------------------------
 
-def _run_pbs_adjoint(struct: np.ndarray, cross_weight: float = 0.5):
+def _run_pbs_adjoint(
+    struct: np.ndarray,
+    cross_weight: float = 0.5,
+    platform: str = "soi",
+):
     """
     Run PBS adjoint simulation for both TE and TM.
     Returns total FoM and gradient w.r.t. flattened design weights.
     """
     import autograd.numpy as npa
 
-    Si = mp.Medium(index=3.4)
-    SiO2 = mp.Medium(index=1.44)
-
-    resolution = 21
-    Sx, Sy = 10, 10
-    cell_size = mp.Vector3(Sx, Sy)
-    pml_layers = [mp.PML(2.0)]
-
-    fcen = 1 / 1.55
-    width = 0.2
-    fwidth = width * fcen
-
-    source_center = [-2.7, 0, 0]
-    source_size = mp.Vector3(0, 2, 0)
-    kpoint = mp.Vector3(1, 0, 0)
-
-    Nx, Ny = 64, 64
-    y_offset = 0.8
-    wg_width = 0.5
+    cfg = get_pbs_platform_config(platform)
+    fcen = 1 / cfg.wavelength_um
 
     total_fom = 0.0
-    total_grad = np.zeros(Nx * Ny)
+    total_grad = np.zeros(struct.size)
 
     for pol in ["TE", "TM"]:
         try:
@@ -81,71 +75,16 @@ def _run_pbs_adjoint(struct: np.ndarray, cross_weight: float = 0.5):
         except Exception:
             pass
 
-        parity = mp.ODD_Z if pol == "TE" else mp.EVEN_Z
-        src = mp.GaussianSource(frequency=fcen, fwidth=fwidth)
-        sources = [
-            mp.EigenModeSource(
-                src,
-                eig_parity=parity,
-                eig_band=1,
-                direction=mp.NO_DIRECTION,
-                eig_kpoint=kpoint,
-                size=source_size,
-                center=source_center,
-            )
-        ]
-
-        design_variables = mp.MaterialGrid(
-            mp.Vector3(Nx, Ny), SiO2, Si, grid_type="U_MEAN"
-        )
-        design_region = mpa.DesignRegion(
-            design_variables,
-            volume=mp.Volume(center=mp.Vector3(), size=mp.Vector3(3, 3, 0)),
-        )
-
-        geometry = [
-            mp.Block(
-                center=mp.Vector3(x=-Sx / 4), material=Si,
-                size=mp.Vector3(Sx / 2, 1, 0),
-            ),
-            mp.Block(
-                center=mp.Vector3(x=Sx / 4, y=y_offset), material=Si,
-                size=mp.Vector3(Sx / 2, wg_width, 0),
-            ),
-            mp.Block(
-                center=mp.Vector3(x=Sx / 4, y=-y_offset), material=Si,
-                size=mp.Vector3(Sx / 2, wg_width, 0),
-            ),
-            mp.Block(
-                center=design_region.center, size=design_region.size,
-                material=design_variables,
-            ),
-        ]
-
-        sim = mp.Simulation(
-            cell_size=cell_size,
-            boundary_layers=pml_layers,
-            geometry=geometry,
-            sources=sources,
-            eps_averaging=True,
-            subpixel_tol=1e-4,
-            resolution=resolution,
-        )
-
-        port_source = mpa.EigenmodeCoefficient(
+        sim_data = build_pbs_simulation(mp, mpa, struct, pol, platform=cfg.name)
+        sim = sim_data["sim"]
+        design_region = sim_data["design_region"]
+        flattened_weights = sim_data["flattened_weights"]
+        port_source, port_top, port_bottom = build_pbs_ports(
+            mp,
+            mpa,
             sim,
-            mp.Volume(center=mp.Vector3(-2.5, 0, 0), size=mp.Vector3(y=2)),
-            mode=1, eig_parity=parity,
-        )
-        port_top = mpa.EigenmodeCoefficient(
-            sim,
-            mp.Volume(center=mp.Vector3(2.5, y_offset, 0), size=mp.Vector3(y=1.0)),
-            mode=1, eig_parity=parity,
-        )
-        port_bottom = mpa.EigenmodeCoefficient(
-            sim,
-            mp.Volume(center=mp.Vector3(2.5, -y_offset, 0), size=mp.Vector3(y=1.0)),
-            mode=1, eig_parity=parity,
+            cfg,
+            sim_data["parity"],
         )
 
         desired_port = port_top if pol == "TE" else port_bottom
@@ -166,12 +105,13 @@ def _run_pbs_adjoint(struct: np.ndarray, cross_weight: float = 0.5):
             fcen=fcen, df=0, nf=1,
         )
 
-        flat = struct.flatten()
-        opt.update_design([flat])
-        fom, g = opt([flat])
+        opt.update_design([flattened_weights])
+        fom, g = opt([flattened_weights])
 
         total_fom += fom[0]
-        total_grad += g.flatten()
+        grad = np.asarray(g).reshape(cfg.grid_nx, cfg.grid_ny)
+        grad = resize_gradient_to_structure_grid(grad, struct.shape)
+        total_grad += grad.flatten()
 
     return total_fom, total_grad
 
@@ -190,6 +130,7 @@ def run_shape_optimization(
     beta_init: float = 2.0,
     beta_final: float = 16.0,
     cross_weight: float = 0.5,
+    platform: str = "soi",
 ):
     mp.verbosity(0)
 
@@ -225,7 +166,11 @@ def run_shape_optimization(
         mask = compute_boundary_mask(phi, band_width=band_width)
 
         # adjoint simulation
-        fom, grad = _run_pbs_adjoint(weights, cross_weight=cross_weight)
+        fom, grad = _run_pbs_adjoint(
+            weights,
+            cross_weight=cross_weight,
+            platform=platform,
+        )
 
         fom_history.append(float(fom))
 

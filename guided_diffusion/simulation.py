@@ -2,6 +2,9 @@ import matplotlib.pyplot as plt
 
 import pickle
 import os
+from .pbs_builder import build_pbs_ports, build_pbs_simulation
+from .pbs_builder import get_objective_wavelengths, project_design_gradient_to_structure
+from .pbs_platform import get_pbs_platform_config
 # Define global lists
 
 
@@ -456,7 +459,7 @@ def waveguide_sim(struct_np, t, exp_name, prop_dir='top',
 
 
 def pbs_sim(struct_np, t, exp_name, prop_dir='top',
-            save_inter=False, interval=1, flag_last=False):
+            save_inter=False, interval=1, flag_last=False, platform='soi'):
     import numpy as np
     import meep as mp
     import meep.adjoint as mpa
@@ -464,34 +467,26 @@ def pbs_sim(struct_np, t, exp_name, prop_dir='top',
     import wandb
 
     mp.verbosity(0)
-    struct_np[struct_np > 1] = 1
-    struct_np[struct_np < 0] = 0
+    struct_np = np.asarray(struct_np, dtype=float)
+    struct_np = np.nan_to_num(struct_np, nan=0.5, posinf=1.0, neginf=0.0)
+    struct_np = np.clip(struct_np, 0.0, 1.0)
     struct_np = np.squeeze(struct_np)
 
-    Si = mp.Medium(index=3.4)
-    SiO2 = mp.Medium(index=1.44)
+    cfg = get_pbs_platform_config(platform)
+    if struct_np.ndim == 1:
+        expected_size = cfg.grid_nx * cfg.grid_ny
+        if struct_np.size != expected_size:
+            raise ValueError(
+                f"pbs_sim expected {expected_size} design values for platform '{platform}', "
+                f"got {struct_np.size}."
+            )
+        struct_np = struct_np.reshape(cfg.grid_nx, cfg.grid_ny)
+    elif struct_np.ndim != 2:
+        raise ValueError(
+            f"pbs_sim expected a 2D structure grid after squeeze, got shape {struct_np.shape}."
+        )
 
-    resolution = 21
-    Sx = 10
-    Sy = 10
-    cell_size = mp.Vector3(Sx, Sy)
-    pml_layers = [mp.PML(2.0)]
-
-    fcen = 1 / 1.55
-    width = 0.2
-    fwidth = width * fcen
-
-    source_center = [-2.7, 0, 0]
-    source_size = mp.Vector3(0, 2, 0)
-    kpoint = mp.Vector3(1, 0, 0)
-
-    design_region_resolution = 21
-    Nx = 64
-    Ny = 64
-
-    # Output waveguide parameters
-    y_offset = 0.8
-    wg_width = 0.5
+    objective_wavelengths_um, objective_weights = get_objective_wavelengths(cfg)
 
     def _safe_reset():
         try:
@@ -503,116 +498,69 @@ def pbs_sim(struct_np, t, exp_name, prop_dir='top',
     if prop_dir not in allowed_props:
         raise ValueError(f"prop_dir must be one of {sorted(allowed_props)}")
 
-    cross_weight = 0.5
+    cross_weight = cfg.cross_weight
 
     def _run_pol(pol):
-        _safe_reset()
-        parity = mp.ODD_Z if pol == "TE" else mp.EVEN_Z
-        src = mp.GaussianSource(frequency=fcen, fwidth=fwidth)
-        source = [
-            mp.EigenModeSource(
-                src,
-                eig_parity=parity,
-                eig_band=1,
-                direction=mp.NO_DIRECTION,
-                eig_kpoint=kpoint,
-                size=source_size,
-                center=source_center,
+        fom_acc = 0.0
+        grad_acc = np.zeros_like(struct_np, dtype=float)
+        for wavelength_um, weight in zip(objective_wavelengths_um, objective_weights):
+            _safe_reset()
+            fcen = 1 / wavelength_um
+            sim_data = build_pbs_simulation(mp, mpa, struct_np, pol, platform=cfg.name, fcen=fcen)
+            sim = sim_data["sim"]
+            design_region = sim_data["design_region"]
+            parity = sim_data["parity"]
+            flattened_array = sim_data["flattened_weights"]
+            port_source, port_top, port_bottom = build_pbs_ports(
+                mp,
+                mpa,
+                sim,
+                cfg,
+                parity,
             )
-        ]
 
-        design_variables = mp.MaterialGrid(
-            mp.Vector3(Nx, Ny), SiO2, Si, grid_type="U_MEAN"
-        )
-        design_region = mpa.DesignRegion(
-            design_variables,
-            volume=mp.Volume(center=mp.Vector3(), size=mp.Vector3(3, 3, 0)),
-        )
+            if prop_dir == "top":
+                ob_list = [port_source, port_top]
 
-        geometry = [
-            mp.Block(
-                center=mp.Vector3(x=-Sx / 4), material=Si, size=mp.Vector3(Sx / 2, 1, 0)
-            ),  # horizontal waveguide: left (input)
-            mp.Block(
-                center=mp.Vector3(x=Sx / 4, y=y_offset), material=Si, size=mp.Vector3(Sx / 2, wg_width, 0)
-            ),  # horizontal waveguide: right top (output TE)
-            mp.Block(
-                center=mp.Vector3(x=Sx / 4, y=-y_offset), material=Si, size=mp.Vector3(Sx / 2, wg_width, 0)
-            ),  # horizontal waveguide: right bottom (output TM)
-            mp.Block(
-                center=design_region.center, size=design_region.size, material=design_variables
-            ),  # design region
-        ]
+                def J(source_coef, top_coef):
+                    denom = source_coef + 1e-12
+                    return npa.abs(top_coef / denom) ** 2
 
-        sim = mp.Simulation(
-            cell_size=cell_size,
-            boundary_layers=pml_layers,
-            geometry=geometry,
-            sources=source,
-            eps_averaging=True,
-            subpixel_tol=1e-4,
-            resolution=resolution,
-        )
+            elif prop_dir == "bottom":
+                ob_list = [port_source, port_bottom]
 
-        port_source = mpa.EigenmodeCoefficient(
-            sim,
-            mp.Volume(center=mp.Vector3(-2.5, 0, 0), size=mp.Vector3(y=2)),
-            mode=1,
-            eig_parity=parity,
-        )
-        port_top = mpa.EigenmodeCoefficient(
-            sim,
-            mp.Volume(center=mp.Vector3(2.5, y_offset, 0), size=mp.Vector3(y=1.0)),
-            mode=1,
-            eig_parity=parity,
-        )
-        port_bottom = mpa.EigenmodeCoefficient(
-            sim,
-            mp.Volume(center=mp.Vector3(2.5, -y_offset, 0), size=mp.Vector3(y=1.0)),
-            mode=1,
-            eig_parity=parity,
-        )
+                def J(source_coef, bottom_coef):
+                    denom = source_coef + 1e-12
+                    return npa.abs(bottom_coef / denom) ** 2
 
-        if prop_dir == "top":
-            ob_list = [port_source, port_top]
+            else:
+                desired_port = port_top if pol == "TE" else port_bottom
+                cross_port = port_bottom if pol == "TE" else port_top
+                ob_list = [port_source, desired_port, cross_port]
 
-            def J(source_coef, top_coef):
-                denom = source_coef + 1e-12
-                return npa.abs(top_coef / denom) ** 2
+                def J(source_coef, desired_coef, cross_coef):
+                    denom = source_coef + 1e-12
+                    desired = npa.abs(desired_coef / denom) ** 2
+                    cross = npa.abs(cross_coef / denom) ** 2
+                    return desired - cross_weight * cross
 
-        elif prop_dir == "bottom":
-            ob_list = [port_source, port_bottom]
+            opt = mpa.OptimizationProblem(
+                simulation=sim,
+                objective_functions=J,
+                objective_arguments=ob_list,
+                design_regions=[design_region],
+                fcen=fcen,
+                df=0,
+                nf=1,
+            )
 
-            def J(source_coef, bottom_coef):
-                denom = source_coef + 1e-12
-                return npa.abs(bottom_coef / denom) ** 2
-
-        else:
-            # PBS objective: TE -> top, TM -> bottom, suppress cross coupling.
-            desired_port = port_top if pol == "TE" else port_bottom
-            cross_port = port_bottom if pol == "TE" else port_top
-            ob_list = [port_source, desired_port, cross_port]
-
-            def J(source_coef, desired_coef, cross_coef):
-                denom = source_coef + 1e-12
-                desired = npa.abs(desired_coef / denom) ** 2
-                cross = npa.abs(cross_coef / denom) ** 2
-                return desired - cross_weight * cross
-
-        opt = mpa.OptimizationProblem(
-            simulation=sim,
-            objective_functions=J,
-            objective_arguments=ob_list,
-            design_regions=[design_region],
-            fcen=fcen,
-            df=0,
-            nf=1,
-        )
-
-        flattened_array = struct_np.flatten()
-        opt.update_design([flattened_array])
-        fom, g = opt([flattened_array])
-        return fom[0], g
+            opt.update_design([flattened_array])
+            fom, g = opt([flattened_array])
+            grad = project_design_gradient_to_structure(g, cfg, struct_np.shape)
+            grad = np.asarray(grad, dtype=float).reshape(struct_np.shape)
+            fom_acc += weight * float(fom[0])
+            grad_acc += weight * grad
+        return fom_acc, grad_acc
 
     _safe_reset()
     fom_te, g_te = _run_pol("TE")

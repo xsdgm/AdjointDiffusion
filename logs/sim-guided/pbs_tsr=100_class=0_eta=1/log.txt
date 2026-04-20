@@ -1,7 +1,10 @@
-Logging to /home/kylin/AdjointDiffusion/logs/sim-guided/pbs_tsr=100_class=0_eta=1
+Logging to /home/xsdgm/AdjointDiffusion/logs/sim-guided/pbs_tsr=100_class=0_eta=1
+sampling kwargs: {'sim_guided': True, 'eta': 1.0, 'exp_name': 'pbs_tsr=100_class=0_eta=1', 'log_dir': '/home/xsdgm/AdjointDiffusion/logs/sim-guided/pbs_tsr=100_class=0_eta=1', 'prop_dir': 'pbs', 'save_inter': True, 'interval': 1, 'inter_rate': 1, 'guidance_type': 'dps', 'use_normed_grad': True, 'stoptime': 0.0, 'use_adjgrad_norm': False, 'sim_type': 'pbs', 'tsr': 100, 'manual_class_id': '', 'pbs_platform': 'soi'}
 using device 0
 creating model and diffusion...
 sampling...
-created 1 samples
-saving to /home/kylin/AdjointDiffusion/logs/sim-guided/pbs_tsr=100_class=0_eta=1/samples_1x64x64x1.npz
-sampling complete
+simulation backend: functools.partial(<function pbs_sim at 0x712eea9648b0>, platform='soi')
+[sampling] step=1 elapsed=143.74s eta=1 fom=0.0307161 adjgrad_norm=0.228361 xtgrad_norm=172.778
+[sampling] step=2 elapsed=132.30s eta=1 fom=-0.00325493 adjgrad_norm=0.110311 xtgrad_norm=0.413209
+[sampling] step=3 elapsed=160.00s eta=1 fom=0.0761512 adjgrad_norm=0.498726 xtgrad_norm=1.27008
+[sampling] step=4 elapsed=154.09s eta=1 fom=-0.0418676 adjgrad_norm=0.202473 xtgrad_norm=0.411694

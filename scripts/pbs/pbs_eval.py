@@ -6,14 +6,23 @@ import meep as mp
 import meep.adjoint as mpa
 import numpy as np
 
+from guided_diffusion.pbs_builder import (
+    build_pbs_ports,
+    build_pbs_simulation,
+    get_objective_wavelengths,
+)
+from guided_diffusion.pbs_platform import get_pbs_platform_config
+
 
 def run_pbs_eval(
     npz_path: str,
     out_path: str,
     sample_index: int = 0,
     polished_npz_path: str | None = None,
+    platform: str = "soi",
 ) -> None:
     mp.verbosity(0)
+    cfg = get_pbs_platform_config(platform)
 
     if polished_npz_path is not None:
         # --- 使用平滑后的结构 ---
@@ -26,26 +35,8 @@ def run_pbs_eval(
         struct = npz["arr_0"][sample_index, :, :, 0].astype("float32") / 255.0
         struct_source = str(npz_path)
 
-    Si = mp.Medium(index=3.4)
-    SiO2 = mp.Medium(index=1.44)
-
-    resolution = 21
-    Sx = 10
-    Sy = 10
-    cell_size = mp.Vector3(Sx, Sy)
-    pml_layers = [mp.PML(2.0)]
-
-    fcen = 1 / 1.55
-    width = 0.2
-    fwidth = width * fcen
-
-    source_center = [-2.7, 0, 0]
-    source_size = mp.Vector3(0, 2, 0)
-    kpoint = mp.Vector3(1, 0, 0)
-
-    Nx = 64
-    Ny = 64
-    cross_weight = 0.5
+    objective_wavelengths_um, objective_weights = get_objective_wavelengths(cfg)
+    cross_weight = cfg.cross_weight
 
     def _safe_reset():
         try:
@@ -54,101 +45,51 @@ def run_pbs_eval(
             pass
 
     def _run_pol(pol: str):
-        _safe_reset()
-        
-        y_offset = 0.8
-        wg_width = 0.5
-        
-        parity = mp.ODD_Z if pol == "TE" else mp.EVEN_Z
-        src = mp.GaussianSource(frequency=fcen, fwidth=fwidth)
-        source = [
-            mp.EigenModeSource(
-                src,
-                eig_parity=parity,
-                eig_band=1,
-                direction=mp.NO_DIRECTION,
-                eig_kpoint=kpoint,
-                size=source_size,
-                center=source_center,
+        fom_top_acc = 0.0
+        fom_bottom_acc = 0.0
+        grad_acc = None
+        for wavelength_um, weight in zip(objective_wavelengths_um, objective_weights):
+            _safe_reset()
+            fcen = 1 / wavelength_um
+            sim_data = build_pbs_simulation(mp, mpa, struct, pol, platform=cfg.name, fcen=fcen)
+            sim = sim_data["sim"]
+            design_region = sim_data["design_region"]
+            port_source, port_top, port_bottom = build_pbs_ports(
+                mp,
+                mpa,
+                sim,
+                cfg,
+                sim_data["parity"],
             )
-        ]
 
-        design_variables = mp.MaterialGrid(
-            mp.Vector3(Nx, Ny), SiO2, Si, grid_type="U_MEAN"
-        )
-        design_region = mpa.DesignRegion(
-            design_variables,
-            volume=mp.Volume(center=mp.Vector3(), size=mp.Vector3(3, 3, 0)),
-        )
+            def J_top(source_coef, top_coef, bottom_coef):
+                denom = source_coef + 1e-12
+                return npa.abs(top_coef / denom) ** 2
 
-        geometry = [
-            mp.Block(
-                center=mp.Vector3(x=-Sx / 4), material=Si, size=mp.Vector3(Sx / 2, 1, 0)
-            ),
-            mp.Block(
-                center=mp.Vector3(x=Sx / 4, y=y_offset), material=Si, size=mp.Vector3(Sx / 2, wg_width, 0)
-            ),
-            mp.Block(
-                center=mp.Vector3(x=Sx / 4, y=-y_offset), material=Si, size=mp.Vector3(Sx / 2, wg_width, 0)
-            ),
-            mp.Block(
-                center=design_region.center, size=design_region.size, material=design_variables
-            ),
-        ]
+            def J_bottom(source_coef, top_coef, bottom_coef):
+                denom = source_coef + 1e-12
+                return npa.abs(bottom_coef / denom) ** 2
 
-        sim = mp.Simulation(
-            cell_size=cell_size,
-            boundary_layers=pml_layers,
-            geometry=geometry,
-            sources=source,
-            eps_averaging=True,
-            subpixel_tol=1e-4,
-            resolution=resolution,
-        )
+            opt = mpa.OptimizationProblem(
+                simulation=sim,
+                objective_functions=[J_top, J_bottom],
+                objective_arguments=[port_source, port_top, port_bottom],
+                design_regions=[design_region],
+                fcen=fcen,
+                df=0,
+                nf=1,
+            )
 
-        port_source = mpa.EigenmodeCoefficient(
-            sim,
-            mp.Volume(center=mp.Vector3(-2.5, 0, 0), size=mp.Vector3(y=2)),
-            mode=1,
-            eig_parity=parity,
-        )
-        port_top = mpa.EigenmodeCoefficient(
-            sim,
-            mp.Volume(center=mp.Vector3(2.5, y_offset, 0), size=mp.Vector3(y=1.0)),
-            mode=1,
-            eig_parity=parity,
-        )
-        port_bottom = mpa.EigenmodeCoefficient(
-            sim,
-            mp.Volume(center=mp.Vector3(2.5, -y_offset, 0), size=mp.Vector3(y=1.0)),
-            mode=1,
-            eig_parity=parity,
-        )
-
-        def J_top(source_coef, top_coef, bottom_coef):
-            denom = source_coef + 1e-12
-            return npa.abs(top_coef / denom) ** 2
-
-        def J_bottom(source_coef, top_coef, bottom_coef):
-            denom = source_coef + 1e-12
-            return npa.abs(bottom_coef / denom) ** 2
-
-        opt = mpa.OptimizationProblem(
-            simulation=sim,
-            objective_functions=[J_top, J_bottom],
-            objective_arguments=[port_source, port_top, port_bottom],
-            design_regions=[design_region],
-            fcen=fcen,
-            df=0,
-            nf=1,
-        )
-
-        flattened_array = struct.flatten()
-        opt.update_design([flattened_array])
-        fom, g = opt([flattened_array])
-        fom_top = float(np.asarray(fom[0]).item())
-        fom_bottom = float(np.asarray(fom[1]).item())
-        return fom_top, fom_bottom, g
+            flattened_array = sim_data["flattened_weights"]
+            opt.update_design([flattened_array])
+            fom, g = opt([flattened_array])
+            fom_top_acc += weight * float(np.asarray(fom[0]).item())
+            fom_bottom_acc += weight * float(np.asarray(fom[1]).item())
+            if grad_acc is None:
+                grad_acc = [weight * np.asarray(gi) for gi in g]
+            else:
+                grad_acc = [acc + weight * np.asarray(gi) for acc, gi in zip(grad_acc, g)]
+        return fom_top_acc, fom_bottom_acc, grad_acc
 
     fom_te_top, fom_te_bottom, g_te = _run_pol("TE")
     fom_tm_top, fom_tm_bottom, g_tm = _run_pol("TM")
@@ -182,6 +123,12 @@ def run_pbs_eval(
         "fom_tm_bottom": float(fom_tm_bottom),
         "fom_pbs": float(fom_pbs),
         "cross_weight": float(cross_weight),
+        "platform": cfg.name,
+        "simulation_dim": cfg.simulation_dim,
+        "crystal_cut": cfg.crystal_cut,
+        "optic_axis": cfg.optic_axis,
+        "objective_wavelengths_um": list(objective_wavelengths_um),
+        "objective_wavelength_weights": list(objective_weights),
         "grad_te_top_min": te_top_min,
         "grad_te_top_max": te_top_max,
         "grad_te_bottom_min": te_bottom_min,
